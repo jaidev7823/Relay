@@ -27,6 +27,10 @@ LOCAL_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 GWDG_EMBEDDING_MODEL = "qwen3-embedding-4b"
 GWDG_BASE_URL = "https://chat-ai.academiccloud.de/v1"
 
+# Vector store defaults (server/backend config; desktop stays embedded)
+DEFAULT_QDRANT_URL = "http://localhost:6333"
+DEFAULT_QDRANT_COLLECTION = "lib_default"
+
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 
 
@@ -105,6 +109,16 @@ class AppConfig:
 
     # Embeddings: "local" (sentence-transformers) or "gwdg" (Chat AI API)
     embedding_backend: str = "local"
+
+    # Vector store: "lance" (embedded, desktop default) or "qdrant" (server).
+    # When "qdrant", db_dir is the data_dir that holds the manifests, and
+    # the vectors live in the Qdrant collection.
+    vector_backend: str = "lance"
+    qdrant_url: str = DEFAULT_QDRANT_URL
+    qdrant_collection: str = "lib_default"
+    qdrant_api_key: str = ""
+    # Root for server-side state (SQLite jobs, manifests). Empty = use db_dir.
+    data_dir: str = ""
 
     # Chunking (token counts)
     chunk_size: int = 800

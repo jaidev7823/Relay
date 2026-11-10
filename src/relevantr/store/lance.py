@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""LanceDB storage layer with a JSON manifest.
+"""LanceDB storage layer with a JSON manifest (the desktop backend).
 
 The database directory is self-contained (LanceDB table + manifest.json), so
 it can live on any drive and be moved by copying. The manifest records which
@@ -18,7 +18,10 @@ from pathlib import Path
 
 import numpy as np
 
+from .base import VectorStore
+
 logger = logging.getLogger(__name__)
+
 
 TABLE_NAME = "chunks"
 MANIFEST_NAME = "manifest.json"
@@ -115,7 +118,7 @@ def detect_legacy_chroma(*dirs: str | Path) -> Path | None:
     return None
 
 
-class IndexStore:
+class IndexStore(VectorStore):
     def __init__(self, db_dir: str | Path):
         self.db_dir = Path(db_dir)
         self._db = None
@@ -126,6 +129,11 @@ class IndexStore:
     @property
     def manifest_path(self) -> Path:
         return self.db_dir / MANIFEST_NAME
+
+    @property
+    def location(self) -> str:
+        """Human-readable storage location for status displays."""
+        return str(self.db_dir)
 
     def exists(self) -> bool:
         return self.manifest_path.exists()

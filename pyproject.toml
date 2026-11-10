@@ -36,6 +36,14 @@ local = [
 test = [
     "pytest>=8.0",
 ]
+server = [
+    # Phase 1 FastAPI server (see docker-compose.yml for the local Qdrant).
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "qdrant-client>=1.12",
+    "fastembed>=0.4",
+    "pydantic-settings>=2.0",
+]
 
 [project.scripts]
 relevantr = "relevantr.__main__:main"

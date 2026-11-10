@@ -11,6 +11,10 @@
 vector_db/
 chroma_db/
 
+# Local service data (Qdrant storage, SQLite job ledger, manifests)
+data/
+qdrant_storage/
+
 # PDF Files (user's documents)
 pdfs/
 my_pdfs/

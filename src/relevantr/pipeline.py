@@ -29,6 +29,7 @@ from .store import (
     StoreError,
     describe_unavailable,
     ensure_pdf_dir_available,
+    get_store,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,11 +98,10 @@ def build_index(config: AppConfig, embedder: EmbeddingBackend, progress=None) ->
     """Create (or fully rebuild) the index from scratch."""
     pdf_dir = ensure_pdf_dir_available(config.pdf_dir)
     db_dir = Path(config.db_dir)
-    parent = db_dir.parent
-    if not parent.exists():
+    if not db_dir.parent.exists():
         raise LocationUnavailableError(describe_unavailable(db_dir, "database"))
 
-    store = IndexStore(db_dir)
+    store = get_store(config)
     manifest = Manifest(
         pdf_dir=str(pdf_dir),
         embedding_model=embedder.name,
@@ -124,7 +124,7 @@ def build_index(config: AppConfig, embedder: EmbeddingBackend, progress=None) ->
 
 def open_for_query(config: AppConfig, embedder: EmbeddingBackend) -> tuple[IndexStore, Manifest]:
     """Open the configured index, verifying it matches the current settings."""
-    store = IndexStore(config.db_dir)
+    store = get_store(config)
     manifest = store.open_existing()
     store.check_compatible(manifest, embedder, config.chunk_size, config.chunk_overlap)
     return store, manifest
@@ -168,7 +168,7 @@ def estimate_rebuild_seconds(config: AppConfig) -> float:
     except LocationUnavailableError:
         return 0.0
     rate = DEFAULT_SECONDS_PER_FILE
-    store = IndexStore(config.db_dir)
+    store = get_store(config)
     if store.exists():
         try:
             manifest = store.open_existing()
@@ -221,11 +221,11 @@ def update_index(config: AppConfig, embedder: EmbeddingBackend, progress=None) -
 
 def index_info(config: AppConfig) -> dict:
     """Manifest summary for 'info' displays; no embedding model needed."""
-    store = IndexStore(config.db_dir)
+    store = get_store(config)
     manifest = store.open_existing()
     n_chunks = sum(rec.get("chunks", 0) for rec in manifest.files.values())
     return {
-        "db_dir": str(store.db_dir),
+        "db_dir": store.location,
         "pdf_dir": manifest.pdf_dir,
         "pdf_dir_available": Path(manifest.pdf_dir).is_dir(),
         "embedding_model": manifest.embedding_model,
@@ -241,7 +241,7 @@ def index_info(config: AppConfig) -> dict:
 
 def repoint_pdf_dir(config: AppConfig, new_pdf_dir: str) -> None:
     """After moving a library, confirm/update the PDF directory in the manifest."""
-    store = IndexStore(config.db_dir)
+    store = get_store(config)
     manifest = store.open_existing()
     manifest.pdf_dir = str(ensure_pdf_dir_available(new_pdf_dir))
     store.write_manifest(manifest)
