@@ -338,7 +338,13 @@ def delete_key(provider: str,
 # ------------------------------------------------------------------ downloads
 
 
-@app.get("/api/export.md", tags=["query"], response_class=None)
+@app.get(
+    "/api/export.md",
+    tags=["query"],
+    response_class=Response,
+    responses={200: {"content": {"text/markdown": {}},
+                     "description": "Markdown file download"}},
+)
 def export_md(question: str = "", st: State = Depends(state)) -> Response:
     result = export(question=question, st=st)
     return Response(
