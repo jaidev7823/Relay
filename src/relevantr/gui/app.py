@@ -29,6 +29,7 @@ from ..store import (
     StoreError,
     detect_legacy_chroma,
 )
+from .markdown_view import insert_markdown
 from .settings import SettingsDialog
 
 logger = logging.getLogger(__name__)
@@ -429,7 +430,7 @@ class RelevantrApp:
             self.results_text.insert(tk.END, "No matching passages found.")
             return
         if answer:
-            self.results_text.insert(tk.END, answer)
+            insert_markdown(self.results_text, answer)
         else:
             self.results_text.insert(
                 tk.END,
