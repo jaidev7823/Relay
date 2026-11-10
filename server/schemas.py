@@ -80,6 +80,20 @@ class IndexInfoOut(BaseModel):
     updated_at: str
 
 
+class DocumentOut(BaseModel):
+    name: str
+    state: str  # ready | new | embedding | failed
+    chunks: int | None = None
+    pages: int | None = None
+    size: int | None = None
+
+
+class DocumentListOut(BaseModel):
+    pdf_dir: str
+    pdf_dir_available: bool
+    documents: list[DocumentOut]
+
+
 class StartJobIn(BaseModel):
     pdf_dir: str | None = None
 

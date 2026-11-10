@@ -28,6 +28,8 @@ from ..ingest_jobs import JobConflictError
 from ..schemas import (
     ConfigIn,
     ConfigOut,
+    DocumentListOut,
+    DocumentOut,
     ExportOut,
     HealthOut,
     IndexInfoOut,
@@ -185,6 +187,64 @@ def index_info(st: State = Depends(state)) -> IndexInfoOut:
     except StoreError as exc:
         raise HTTPException(404, str(exc))
     return IndexInfoOut(**info)
+
+
+@app.get("/api/index/documents", response_model=DocumentListOut, tags=["index"])
+def index_documents(st: State = Depends(state)) -> DocumentListOut:
+    import pathlib
+    from relevantr.ingest import list_pdfs
+
+    config = st.config
+    pdf_dir = pathlib.Path(config.pdf_dir) if config.pdf_dir else None
+    available = bool(pdf_dir and pdf_dir.is_dir())
+
+    manifest_files: dict = {}
+    try:
+        store = st.store()
+        manifest = store.open_existing()
+        manifest_files = manifest.files or {}
+    except StoreError:
+        manifest_files = {}
+
+    active = st.job_runner.active_job()
+    active_msg = (active or {}).get("message") or ""
+
+    docs: list[DocumentOut] = []
+    seen = set()
+
+    # Indexed / known files
+    for name, rec in sorted(manifest_files.items()):
+        seen.add(name)
+        state = "ready"
+        if active and active.get("status") in ("queued", "running") and name in active_msg:
+            state = "embedding"
+        docs.append(DocumentOut(
+            name=name,
+            state=state,
+            chunks=rec.get("chunks"),
+            pages=None,
+            size=rec.get("size"),
+        ))
+
+    # PDFs in folder but not in manifest
+    if available and pdf_dir:
+        for p in list_pdfs(pdf_dir):
+            if p.name in seen:
+                continue
+            state = "new"
+            if active and active.get("status") in ("queued", "running") and p.name in active_msg:
+                state = "embedding"
+            try:
+                size = p.stat().st_size
+            except OSError:
+                size = None
+            docs.append(DocumentOut(name=p.name, state=state, chunks=None, pages=None, size=size))
+
+    return DocumentListOut(
+        pdf_dir=str(pdf_dir) if pdf_dir else "",
+        pdf_dir_available=available,
+        documents=docs,
+    )
 
 
 # ---------------------------------------------------------------------- jobs

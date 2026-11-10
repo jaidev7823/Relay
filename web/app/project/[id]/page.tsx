@@ -1,12 +1,11 @@
-import ProjectView from "./ProjectView";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function ProjectPage({
+export default async function ProjectIndex({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <ProjectView id={id} />;
+  const chatId = crypto.randomUUID();
+  redirect(`/project/${id}/chat/${chatId}`);
 }
