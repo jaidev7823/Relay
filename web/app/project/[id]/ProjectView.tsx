@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   BookOpen,
   ChevronLeft,
@@ -48,6 +50,60 @@ function stateLabel(source: Doc) {
   return "Failed";
 }
 
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+        h1: ({ children }) => <h1 className="mb-2 mt-3 first:mt-0 text-base font-semibold">{children}</h1>,
+        h2: ({ children }) => <h2 className="mb-2 mt-3 first:mt-0 text-sm font-semibold">{children}</h2>,
+        h3: ({ children }) => <h3 className="mb-1 mt-2 first:mt-0 text-sm font-medium">{children}</h3>,
+        ul: ({ children }) => <ul className="mb-2 ml-4 list-disc space-y-1 last:mb-0">{children}</ul>,
+        ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal space-y-1 last:mb-0">{children}</ol>,
+        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        blockquote: ({ children }) => (
+          <blockquote className="my-2 border-l-2 border-border pl-3 italic text-muted-foreground">{children}</blockquote>
+        ),
+        a: ({ href, children }) => (
+          <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
+            {children}
+          </a>
+        ),
+        code: ({ className, children, ...props }) => {
+          const isBlock = /language-/.test(className || "");
+          if (isBlock) {
+            return (
+              <code className={cn("block overflow-x-auto font-mono text-xs", className)} {...props}>
+                {children}
+              </code>
+            );
+          }
+          return (
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]" {...props}>
+              {children}
+            </code>
+          );
+        },
+        pre: ({ children }) => (
+          <pre className="my-2 overflow-x-auto rounded-md border bg-muted/50 p-3 text-xs last:mb-0">{children}</pre>
+        ),
+        table: ({ children }) => (
+          <div className="my-2 overflow-x-auto last:mb-0">
+            <table className="w-full border-collapse text-xs">{children}</table>
+          </div>
+        ),
+        th: ({ children }) => <th className="border border-border bg-muted/50 px-2 py-1 text-left font-medium">{children}</th>,
+        td: ({ children }) => <td className="border border-border px-2 py-1 align-top">{children}</td>,
+        hr: () => <hr className="my-3 border-border" />,
+        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
   return (
@@ -71,8 +127,12 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           </div>
         ) : message.error ? (
           <div className="text-red-500">{message.error}</div>
-        ) : (
+        ) : isUser ? (
           <div className="whitespace-pre-wrap">{message.content}</div>
+        ) : (
+          <div className="min-w-0">
+            <MarkdownContent content={message.content} />
+          </div>
         )}
         {!isUser && message.sources && message.sources.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
