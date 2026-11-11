@@ -250,6 +250,8 @@ class State:
 
     def init_jobs_db(self) -> None:
         jobs_db.init_db(self.jobs_db_path)
+        # Any job left queued/running from a previous process is dead.
+        jobs_db.interrupt_stale(self.jobs_db_path)
         chats_db.init_db(self.jobs_db_path)
         users_db.init_db(self.jobs_db_path)
         projects_db.init_db(self.jobs_db_path)

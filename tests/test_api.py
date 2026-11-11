@@ -512,3 +512,16 @@ def test_llm_test_uses_form_overrides(client):
         "provider": "custom", "base_url": "http://127.0.0.1:1/v1", "model": "x", "key": "sk-x",
     })
     assert r.status_code == 502
+
+
+def test_interrupt_stale_marks_running_jobs_failed(tmp_path):
+    from server import jobs as jobs_db
+
+    db = tmp_path / "jobs.db"
+    jobs_db.init_db(db)
+    j = jobs_db.create_job(db, "build")
+    jobs_db.update_job(db, j["id"], status="running", progress=0.0, message="embedding")
+    assert jobs_db.interrupt_stale(db) == 1
+    job = jobs_db.get_job(db, j["id"])
+    assert job["status"] == "failed"
+    assert job["error"] == "interrupted"

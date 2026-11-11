@@ -115,6 +115,29 @@ def update_job(db_path: Path, job_id: str, **fields) -> None:
             conn.close()
 
 
+def interrupt_stale(db_path: Path) -> int:
+    """Mark any queued/running jobs as failed.
+
+    Indexing runs in daemon threads; a server restart kills them mid-flight,
+    leaving rows stuck in 'running' forever (and blocking the UI's
+    active-job indicators). Called once on server startup.
+    """
+    now = time.time()
+    with _write_lock:
+        conn = _connect(db_path)
+        try:
+            cur = conn.execute(
+                "UPDATE jobs SET status = 'failed', error = 'interrupted', "
+                "message = 'Interrupted by server restart', finished_at = ? "
+                "WHERE status IN ('queued', 'running')",
+                (now,),
+            )
+            conn.commit()
+            return cur.rowcount
+        finally:
+            conn.close()
+
+
 def get_job(db_path: Path, job_id: str) -> dict | None:
     conn = _connect(db_path)
     try:
