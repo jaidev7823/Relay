@@ -55,7 +55,60 @@ function stateLabel(source: Doc) {
   return "Failed";
 }
 
-function MarkdownContent({ content }: { content: string }) {
+function CitationChip({
+  n,
+  source,
+  onOpen,
+}: {
+  n: number;
+  source: ChatSource;
+  onOpen?: (s: ChatSource) => void;
+}) {
+  return (
+    <span className="group/cite relative inline-flex align-super">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          onOpen?.(source);
+        }}
+        className="inline-flex h-4 min-w-4 items-center justify-center rounded border border-border bg-muted px-0.5 text-[10px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-foreground"
+        aria-label={`Source ${n}: ${source.file}, page ${source.page}`}
+      >
+        {n}
+      </button>
+      <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1 hidden w-64 -translate-x-1/2 rounded-md border bg-popover p-2 text-left text-[11px] font-normal leading-snug text-popover-foreground shadow-md group-hover/cite:block">
+        <span className="block truncate font-medium">{source.file}</span>
+        <span className="block text-muted-foreground">
+          Page {source.page} · relevance {(source.score * 100).toFixed(0)}%
+        </span>
+        <span className="mt-1 line-clamp-4 text-muted-foreground">{source.snippet}</span>
+      </span>
+    </span>
+  );
+}
+
+function MarkdownContent({
+  content,
+  sources,
+  onOpenSource,
+}: {
+  content: string;
+  sources?: ChatSource[];
+  onOpenSource?: (s: ChatSource) => void;
+}) {
+  const processed = useMemo(
+    () =>
+      content.replace(/\[([\d,\s]+)\]/g, (raw, group: string) => {
+        const ids = group
+          .split(",")
+          .map((s) => parseInt(s.trim(), 10))
+          .filter((n) => Number.isInteger(n) && n >= 1 && sources && n <= sources.length);
+        if (!ids.length) return raw;
+        return ids.map((id) => `[${id}](#cite-${id})`).join("");
+      }),
+    [content, sources]
+  );
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -70,11 +123,21 @@ function MarkdownContent({ content }: { content: string }) {
         blockquote: ({ children }) => (
           <blockquote className="my-2 border-l-2 border-border pl-3 italic text-muted-foreground">{children}</blockquote>
         ),
-        a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
-            {children}
-          </a>
-        ),
+        a: ({ href, children }) => {
+          const cite = href?.match(/^#cite-(\d+)$/);
+          if (cite && sources) {
+            const n = parseInt(cite[1], 10);
+            const source = sources[n - 1];
+            if (source) {
+              return <CitationChip n={n} source={source} onOpen={onOpenSource} />;
+            }
+          }
+          return (
+            <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
+              {children}
+            </a>
+          );
+        },
         code: ({ className, children, ...props }) => {
           const isBlock = /language-/.test(className || "");
           if (isBlock) {
@@ -104,7 +167,7 @@ function MarkdownContent({ content }: { content: string }) {
         strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
       }}
     >
-      {content}
+      {processed}
     </ReactMarkdown>
   );
 }
@@ -113,10 +176,12 @@ function MessageBubble({
   message,
   onShowSources,
   sourcesActive,
+  onOpenSource,
 }: {
   message: ChatMessage;
   onShowSources?: (id: string) => void;
   sourcesActive?: boolean;
+  onOpenSource?: (s: ChatSource) => void;
 }) {
   const isUser = message.role === "user";
   return (
@@ -144,21 +209,11 @@ function MessageBubble({
           <div className="whitespace-pre-wrap">{message.content}</div>
         ) : (
           <div className="min-w-0">
-            <MarkdownContent content={message.content} />
+            <MarkdownContent content={message.content} sources={message.sources} onOpenSource={onOpenSource} />
           </div>
         )}
         {!isUser && message.sources && message.sources.length > 0 && (
           <div className="mt-3 border-t border-border/60 pt-2">
-            <div className="flex flex-wrap gap-1.5">
-              {message.sources.map((s, i) => (
-                <span
-                  key={s.id}
-                  className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
-                >
-                  [{i + 1}] {s.file.replace(/\.pdf$/i, "")} · p.{s.page}
-                </span>
-              ))}
-            </div>
             <button
               onClick={() => onShowSources?.(message.id)}
               className={cn(
@@ -332,6 +387,12 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
     setRightTab("sources");
     const msg = messages.find((m) => m.id === id);
     if (msg?.sources?.length) setSelected(msg.sources[0]);
+  };
+
+  // Inline citation click: open the cited page in the right sidebar.
+  const openCited = (source: ChatSource) => {
+    setSelected(source);
+    setRightTab("page");
   };
 
   useEffect(() => {
@@ -579,6 +640,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
                   key={m.id}
                   message={m}
                   onShowSources={showSources}
+                  onOpenSource={openCited}
                   sourcesActive={sourcesForId === m.id || (!sourcesForId && m.id === latestAssistant?.id)}
                 />
               ))}

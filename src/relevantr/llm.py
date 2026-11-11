@@ -38,7 +38,7 @@ def build_context(passages: list[Passage]) -> tuple[str, str]:
 
 def build_prompt(question: str, passages: list[Passage]) -> str:
     """The strict source-attribution prompt from Relevantr v1."""
-    context, sources = build_context(passages)
+    context, _sources = build_context(passages)
     return f"""
 You are an AI assistant specialized in scientific document analysis. 
 Your task is to answer the user's question STRICTLY by referencing the provided document excerpts.
@@ -51,9 +51,14 @@ Your task is to answer the user's question STRICTLY by referencing the provided 
 
 Requirements:
 - Be super concise and direct. Zero fluff, zero conversational filler, and no repetitive phrases like "According to the document" or "Based on the provided excerpts".
-- High technical detail: Include the exact product code, ordering code, specifications (ratings, poles, contacts, compatibility), list price (INR), and page source.
+- High technical detail: Include the exact product code, ordering code, specifications (ratings, poles, contacts, compatibility), list price (INR).
 - Natural structure: Format cleanly in whatever way best fits the data (clean bullets, short text, or line items), but keep it dense and immediately scannable.
 - If not present in the excerpts, say so directly in one sentence and state what related ranges exist.
+- EVERY factual claim MUST end with an inline citation marker [n], where n is the
+  number of the context item it came from ([1] = CONTEXT_ITEM_1). Use multiple
+  markers like [1][4] for multi-part facts.
+- Do NOT write a "Sources:", "Full Source References", or "Source: ..." line anywhere.
+  The [n] markers are the only attribution; they are rendered as citation buttons.
 
 **Context Information:**
 {context}
@@ -61,9 +66,7 @@ Requirements:
 ---
 **User Question:** {question}
 
-Please provide a comprehensive, well-attributed answer based ONLY on the provided context.
-
-{sources}
+Please provide a well-attributed answer based ONLY on the provided context, using [n] markers only.
 """
 
 

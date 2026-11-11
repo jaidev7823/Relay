@@ -22,7 +22,8 @@ def test_prompt_contains_question_context_and_sources():
     assert "Hydrogen lowers the barrier." in prompt
     assert "CONTEXT_ITEM_1" in prompt and "CONTEXT_ITEM_2" in prompt
     assert "STRICTLY" in prompt  # the strict v1 attribution instructions
-    assert "Full Source References:" in prompt
+    assert "[n]" in prompt  # inline citation markers are the attribution mechanism
+    assert "Full Source References:" not in prompt  # attribution is inline [n], not a sources block
 
 
 def make_mock_client(answer="mocked answer"):
