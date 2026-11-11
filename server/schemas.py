@@ -157,6 +157,16 @@ class LlmModelsOut(BaseModel):
     models: list[str]
 
 
+class LlmConnIn(BaseModel):
+    """Optional form-state overrides for connection tests. NOT persisted.
+    If ``key`` is provided it is used as-is (env/stored keys are ignored)."""
+
+    provider: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    key: str | None = None
+
+
 class KeyStatusOut(BaseModel):
     provider: str
     set: bool

@@ -114,8 +114,10 @@ export const api = {
     files.forEach((f) => fd.append("files", f));
     return request<{ documents: Doc[] }>(`/api/projects/${encodeURIComponent(projectId)}/upload`, { method: "POST", body: fd });
   },
-  llmTest: () => request<{ ok: boolean; message: string }>("/api/llm/test", { method: "POST" }),
-  llmModels: () => request<{ models: string[] }>("/api/llm/models"),
+  llmTest: (body?: { provider?: string; base_url?: string; model?: string; key?: string }) =>
+    request<{ ok: boolean; message: string }>("/api/llm/test", { method: "POST", body: JSON.stringify(body ?? {}) }),
+  llmModels: (body?: { provider?: string; base_url?: string; model?: string; key?: string }) =>
+    request<{ models: string[] }>("/api/llm/models", { method: "POST", body: JSON.stringify(body ?? {}) }),
   keyStatus: (provider: string) => request<{ provider: string; set: boolean; source: string }>(`/api/keys/${provider}`),
   setKey: (provider: string, key: string) => request<{ provider: string; set: boolean; source: string }>(`/api/keys/${provider}`, { method: "PUT", body: JSON.stringify({ key }) }),
   deleteKey: (provider: string) => request<{ provider: string; set: boolean; source: string }>(`/api/keys/${provider}`, { method: "DELETE" }),

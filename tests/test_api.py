@@ -487,3 +487,28 @@ def test_legacy_llm_fields_migrate(client):
     conn.close()
     assert "llm_base_url" not in data
     assert data["llm_providers"]["custom"]["base_url"] == "http://legacy:9000/v1"
+
+
+def test_llm_test_uses_form_overrides(client):
+    """Connection test must exercise the form's provider/base_url/key,
+    not the saved config — and return a clean failure on unreachable hosts."""
+    r = client.post("/api/llm/test", json={
+        "provider": "custom",
+        "base_url": "http://127.0.0.1:1/v1",
+        "model": "muse-code",
+        "key": "sk-typed-in-form",
+    })
+    assert r.status_code == 200
+    assert r.json()["ok"] is False  # unreachable, but the call reached the right provider
+
+    # empty key + no stored/env key for 'custom' -> clean "no key" failure
+    r = client.post("/api/llm/test", json={"provider": "custom", "base_url": "", "model": "", "key": ""})
+    assert r.status_code == 200
+    assert r.json()["ok"] is False
+    assert "No API key" in r.json()["message"]
+
+    # models list surfaces the connection failure as 502
+    r = client.post("/api/llm/models", json={
+        "provider": "custom", "base_url": "http://127.0.0.1:1/v1", "model": "x", "key": "sk-x",
+    })
+    assert r.status_code == 502

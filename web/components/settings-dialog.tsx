@@ -100,11 +100,21 @@ export function SettingsDialog({
     }
   };
 
+  const connBody = () => {
+    const provider = cfg?.llm_provider || "gwdg";
+    return {
+      provider,
+      base_url: cfg?.llm_base_url || "",
+      model: cfg?.llm_model || "",
+      key: keyInputs[provider]?.trim() || undefined,
+    };
+  };
+
   const testLlm = async () => {
     setLlmTesting(true);
     setLlmResult(null);
     try {
-      const res = await api.llmTest();
+      const res = await api.llmTest(connBody());
       setLlmResult(res);
     } catch (e: any) {
       setLlmResult({ ok: false, message: e?.message || "Test failed" });
@@ -116,7 +126,7 @@ export function SettingsDialog({
   const loadModels = async () => {
     setModelsLoading(true);
     try {
-      const res = await api.llmModels();
+      const res = await api.llmModels(connBody());
       setModels(res.models || []);
     } catch (e: any) {
       setErr(e?.message || "Failed to list models");
@@ -259,7 +269,7 @@ export function SettingsDialog({
                       </div>
                       <p className="mb-2 text-xs text-muted-foreground">
                         {needsKey
-                          ? `Used when "${providerLabel}" is selected. Stored server-side (keyring/env), never shown in the browser.`
+                          ? `Used when "${providerLabel}" is selected. Stored encrypted server-side, never shown in the browser.`
                           : "Ollama usually runs locally and may not require an API key."}
                       </p>
                       <div className="flex gap-2">

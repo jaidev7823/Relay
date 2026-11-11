@@ -42,6 +42,7 @@ from ..schemas import (
     JobOut,
     KeyIn,
     KeyStatusOut,
+    LlmConnIn,
     LlmModelsOut,
     LlmProviderOut,
     LlmTestOut,
@@ -625,21 +626,51 @@ def export(question: str = "", project_id: str | None = None,
 # ------------------------------------------------------------------------ llm
 
 
+def _conn_config(body, st: State, user: dict):
+    """Form-state overrides on the user's config; never persisted."""
+    import dataclasses
+
+    config = st.user_config(user["id"])
+    if body is None:
+        return config, None
+    if body.provider:
+        config = dataclasses.replace(config, llm_provider=body.provider)
+    if body.base_url:
+        config.llm_base_url = body.base_url
+    if body.model:
+        config.llm_model = body.model
+    key = body.key if body.key else None
+    return config, key
+
+
 @app.post("/api/llm/test", response_model=LlmTestOut, tags=["llm"])
-def llm_test(user: dict = Depends(require_user), st: State = Depends(state)) -> LlmTestOut:
-    try:
-        ok, message = llm.test_connection(st.user_config(user["id"]), user["id"])
-    except LLMError as exc:
-        return LlmTestOut(ok=False, message=str(exc))
+def llm_test(body: LlmConnIn | None = None, user: dict = Depends(require_user),
+             st: State = Depends(state)) -> LlmTestOut:
+    config, form_key = _conn_config(body, st, user)
+    # form key wins; otherwise resolve env/stored for the (possibly overridden) provider
+    if form_key:
+        ok, message = llm.test_connection(config, user["id"], api_key=form_key, key_source="form")
+    else:
+        try:
+            ok, message = llm.test_connection(config, user["id"])
+        except LLMError as exc:
+            return LlmTestOut(ok=False, message=str(exc))
     return LlmTestOut(ok=ok, message=message)
 
 
-@app.get("/api/llm/models", response_model=LlmModelsOut, tags=["llm"])
-def llm_models(user: dict = Depends(require_user), st: State = Depends(state)) -> LlmModelsOut:
+@app.post("/api/llm/models", response_model=LlmModelsOut, tags=["llm"])
+def llm_models(body: LlmConnIn | None = None, user: dict = Depends(require_user),
+               st: State = Depends(state)) -> LlmModelsOut:
+    config, form_key = _conn_config(body, st, user)
     try:
-        models = llm.list_models(st.user_config(user["id"]), user["id"])
+        if form_key:
+            models = llm.list_models(config, user["id"], api_key=form_key, key_source="form")
+        else:
+            models = llm.list_models(config, user["id"])
     except LLMError as exc:
         raise HTTPException(502, str(exc))
+    except Exception as exc:  # provider unreachable / bad endpoint / bad key
+        raise HTTPException(502, f"Failed to reach provider: {exc}")
     return LlmModelsOut(models=models)
 
 
