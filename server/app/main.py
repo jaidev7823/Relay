@@ -317,6 +317,35 @@ def _run_query(st: State, question: str):
     return passages, answer
 
 
+# ----------------------------------------------------------------- documents
+
+
+@app.get("/api/documents/file", tags=["index"])
+def document_file(name: str, st: State = Depends(state)):
+    """Serve a PDF from the configured pdf_dir (for the in-app viewer)."""
+    import pathlib
+    from fastapi.responses import FileResponse
+
+    if not name or "/" in name or "\\" in name or ".." in name or name != pathlib.Path(name).name:
+        raise HTTPException(400, "invalid document name")
+    pdf_dir = pathlib.Path(st.config.pdf_dir) if st.config.pdf_dir else None
+    if not pdf_dir or not pdf_dir.is_dir():
+        raise HTTPException(404, "pdf_dir not configured or unavailable")
+    path = (pdf_dir / name).resolve()
+    try:
+        path.relative_to(pdf_dir.resolve())
+    except ValueError:
+        raise HTTPException(400, "invalid document name")
+    if not path.is_file() or path.suffix.lower() != ".pdf":
+        raise HTTPException(404, "document not found")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=name,
+        headers={"Content-Disposition": f'inline; filename="{name}"'},
+    )
+
+
 # -------------------------------------------------------------------- export
 
 

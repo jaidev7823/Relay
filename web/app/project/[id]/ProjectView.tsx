@@ -2,9 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+const PdfPageViewer = dynamic(
+  () => import("@/components/pdf-page-viewer").then((m) => m.PdfPageViewer),
+  { ssr: false, loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading viewer…</div> }
+);
 import {
   BookOpen,
   ChevronLeft,
@@ -171,6 +177,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
   const [input, setInput] = useState("");
   const [llmEnabled, setLlmEnabled] = useState(true);
   const [selected, setSelected] = useState<ChatSource | null>(null);
+  const [viewPage, setViewPage] = useState<number>(1);
   const [asking, setAsking] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -266,8 +273,13 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
 
   const openSource = (ref: ChatSource) => {
     setSelected(ref);
+    setViewPage(ref.page);
     setRightTab("page");
   };
+
+  useEffect(() => {
+    if (selected) setViewPage(selected.page);
+  }, [selected?.id]);
 
   const runJob = async (kind: "build" | "update" | "rebuild") => {
     setBusy(kind);
@@ -534,34 +546,39 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
                 <>
                   <div className="border-b bg-background/50 p-3">
                     <p className="truncate text-sm font-medium">{selected.file}</p>
-                    <p className="text-xs text-muted-foreground">Page {selected.page} · relevance {(selected.score * 100).toFixed(0)}%</p>
+                    <p className="text-xs text-muted-foreground">
+                      Cited page {selected.page} · viewing page {viewPage} · relevance {(selected.score * 100).toFixed(0)}%
+                    </p>
                   </div>
                   <div className="flex-1 overflow-y-auto p-3">
-                    <div className="rounded-lg border bg-white p-5 shadow-sm dark:bg-neutral-950">
-                      <div className="mb-4 flex items-center justify-between border-b pb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                        <span className="truncate pr-4">{selected.file}</span>
-                        <span>Page {selected.page}</span>
-                      </div>
-                      <div className="space-y-3 whitespace-pre-wrap text-[13px] leading-7 text-foreground/90">
-                        <p className="rounded-md bg-amber-200/40 px-2 py-1 dark:bg-amber-500/10">{selected.snippet}</p>
-                      </div>
+                    <div className="mb-3 rounded-lg border bg-amber-500/5 p-3">
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Retrieved passage</p>
+                      <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/90">{selected.snippet}</p>
                     </div>
-                    <div className="mt-3 rounded-lg border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">
-                      <p className="font-medium text-foreground">PDF viewer (planned)</p>
-                      <p className="mt-1 leading-relaxed">This will render the actual PDF page via <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">react-pdf</code> once a file-serving endpoint is added.</p>
+                    <div className="rounded-lg border bg-card p-2">
+                      <PdfPageViewer fileName={selected.file} pageNumber={viewPage} />
                     </div>
                   </div>
                   <div className="flex items-center justify-between border-t bg-background/50 p-2">
-                    <Button variant="outline" size="sm" disabled><ChevronLeft className="size-3.5" /> Prev</Button>
-                    <span className="text-xs font-medium text-muted-foreground">Page {selected.page}</span>
-                    <Button variant="outline" size="sm" disabled>Next <ChevronRight className="size-3.5" /></Button>
+                    <Button variant="outline" size="sm" onClick={() => setViewPage((p) => Math.max(1, p - 1))} disabled={viewPage <= 1}>
+                      <ChevronLeft className="size-3.5" /> Prev
+                    </Button>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">Page {viewPage}</span>
+                      {viewPage !== selected.page && (
+                        <Button variant="ghost" size="xs" onClick={() => setViewPage(selected.page)}>Go to cited</Button>
+                      )}
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setViewPage((p) => p + 1)}>
+                      Next <ChevronRight className="size-3.5" />
+                    </Button>
                   </div>
                 </>
               ) : (
                 <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
                   <Search className="size-8 opacity-40" />
                   <p className="text-sm font-medium">No source selected</p>
-                  <p className="text-xs">Double-click a source to view its passage.</p>
+                  <p className="text-xs">Double-click a source to view its PDF page.</p>
                 </div>
               )}
             </TabsContent>
