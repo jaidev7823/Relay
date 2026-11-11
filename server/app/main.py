@@ -43,6 +43,7 @@ from ..schemas import (
     KeyIn,
     KeyStatusOut,
     LlmModelsOut,
+    LlmProviderOut,
     LlmTestOut,
     ProjectCreateIn,
     ProjectListOut,
@@ -156,6 +157,7 @@ def _config_out(st: State, user_id: str) -> ConfigOut:
         llm_provider=c.llm_provider,
         llm_base_url=c.llm_base_url,
         llm_model=c.llm_model,
+        providers=[LlmProviderOut(**p) for p in st.user_providers(user_id)],
     )
 
 

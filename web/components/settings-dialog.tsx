@@ -11,13 +11,9 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const PROVIDERS = [
-  { id: "gwdg", label: "GWDG Chat AI" },
-  { id: "openai", label: "OpenAI" },
-  { id: "gemini", label: "Gemini" },
-  { id: "ollama", label: "Ollama" },
-  { id: "custom", label: "Custom" },
-];
+// Provider metadata comes from the backend (GET /api/config), including the
+// base_url/model this user would actually use per provider.
+
 
 export function SettingsDialog({
   open,
@@ -54,7 +50,7 @@ export function SettingsDialog({
         setCfg(c);
         const statuses: Record<string, { set: boolean; source: string }> = {};
         await Promise.all(
-          PROVIDERS.map(async (p) => {
+          (c.providers || []).map(async (p: any) => {
             try {
               const s = await api.keyStatus(p.id);
               statuses[p.id] = { set: s.set, source: s.source };
@@ -73,6 +69,8 @@ export function SettingsDialog({
   }, [open]);
 
   if (!open) return null;
+
+  const providers: any[] = cfg?.providers || [];
 
   const set = (key: string, value: any) => setCfg((c: any) => ({ ...c, [key]: value }));
 
@@ -216,15 +214,24 @@ export function SettingsDialog({
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Provider">
                     <Select
-                      items={PROVIDERS.map((p) => ({ label: p.label, value: p.id }))}
+                      items={providers.map((p: any) => ({ label: p.label, value: p.id }))}
                       value={cfg.llm_provider || "gwdg"}
-                      onValueChange={(v: string | null) => v != null && set("llm_provider", v)}
+                      onValueChange={(v: string | null) => {
+                        if (v == null) return;
+                        const prov = providers.find((p: any) => p.id === v);
+                        setCfg((c: any) => ({
+                          ...c,
+                          llm_provider: v,
+                          llm_base_url: prov?.base_url ?? c.llm_base_url,
+                          llm_model: prov?.default_model ?? c.llm_model,
+                        }));
+                      }}
                     >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Select provider" />
                       </SelectTrigger>
                       <SelectContent>
-                        {PROVIDERS.map((p) => (
+                        {providers.map((p: any) => (
                           <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
                         ))}
                       </SelectContent>
@@ -237,9 +244,9 @@ export function SettingsDialog({
 
                 {(() => {
                   const provider = cfg.llm_provider || "gwdg";
-                  const providerLabel = PROVIDERS.find((p) => p.id === provider)?.label || provider;
+                  const providerLabel = providers.find((p: any) => p.id === provider)?.label || provider;
+                  const needsKey = providers.find((p: any) => p.id === provider)?.needs_key ?? (provider !== "ollama");
                   const st = keyStatuses[provider];
-                  const needsKey = provider !== "ollama";
                   return (
                     <div className="rounded-lg border p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">

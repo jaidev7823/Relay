@@ -90,15 +90,74 @@ class State:
 
     # -- projects ----------------------------------------------------------
 
+    def user_providers(self, user_id: str) -> list[dict]:
+        """Effective LLM provider list for the UI: preset metadata plus the
+        base_url/model this user would actually use (their stored bucket,
+        the operator default, or the preset default)."""
+        from relevantr.config import LLM_PRESETS
+
+        data = user_settings_db.get(self.jobs_db_path, user_id)
+        buckets = data.get("llm_providers", {})
+        default_provider = self.config.llm_provider
+
+        def effective(provider_id: str, field: str, preset_value: str, global_value: str) -> str:
+            bucket = buckets.get(provider_id, {})
+            if bucket.get(field):
+                return bucket[field]
+            if provider_id == default_provider and global_value:
+                return global_value
+            return preset_value
+
+        out = []
+        for pid, preset in LLM_PRESETS.items():
+            out.append({
+                "id": pid,
+                "label": preset.label,
+                "env_var": preset.env_var,
+                "needs_key": preset.needs_key,
+                "note": preset.note,
+                "base_url": effective(pid, "base_url", preset.base_url, self.config.llm_base_url),
+                "default_model": effective(pid, "model", preset.default_model, self.config.llm_model),
+            })
+        return out
+
     def user_config(self, user_id: str) -> AppConfig:
         """Global config + the user's per-field overrides. Never persisted."""
         import dataclasses
 
-        overlay = user_settings_db.get(self.jobs_db_path, user_id)
-        return dataclasses.replace(self.config, **overlay)
+        data = user_settings_db.get(self.jobs_db_path, user_id)
+        active = data.get("llm_provider") or self.config.llm_provider
+
+        kwargs: dict = {k: v for k, v in data.items()
+                        if k in user_settings_db._SCALAR_FIELDS}
+
+        from relevantr.config import LLM_PRESETS
+
+        preset = LLM_PRESETS.get(active)
+        bucket = data.get("llm_providers", {}).get(active, {})
+        global_match = active == self.config.llm_provider
+
+        kwargs["llm_base_url"] = (
+            bucket.get("base_url")
+            or (self.config.llm_base_url if global_match else None)
+            or (preset.base_url if preset else None)
+            or ""
+        )
+        kwargs["llm_model"] = (
+            bucket.get("model")
+            or (self.config.llm_model if global_match else None)
+            or (preset.default_model if preset else None)
+            or ""
+        )
+        kwargs["llm_provider"] = active
+
+        return dataclasses.replace(self.config, **kwargs)
 
     def user_patch_settings(self, user_id: str, updates: dict) -> dict:
-        return user_settings_db.patch(self.jobs_db_path, user_id, updates)
+        return user_settings_db.patch(
+            self.jobs_db_path, user_id, updates,
+            default_provider=self.config.llm_provider,
+        )
 
     # -- per-user API keys --------------------------------------------------
 

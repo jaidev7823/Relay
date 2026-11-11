@@ -12,6 +12,16 @@ class HealthOut(BaseModel):
     version: str
 
 
+class LlmProviderOut(BaseModel):
+    id: str
+    label: str
+    env_var: str
+    needs_key: bool
+    note: str = ""
+    base_url: str
+    default_model: str
+
+
 class ConfigOut(BaseModel):
     pdf_dir: str
     db_dir: str
@@ -28,6 +38,7 @@ class ConfigOut(BaseModel):
     llm_provider: str
     llm_base_url: str
     llm_model: str
+    providers: list[LlmProviderOut] = []
 
 
 class ConfigIn(BaseModel):

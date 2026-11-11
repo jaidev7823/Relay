@@ -434,3 +434,56 @@ def test_user_keys_are_per_user_and_encrypted(client):
     db_path = deps.get_settings().data_dir / "jobs.db"
     assert b"sk-alice-secret-123" not in db_path.read_bytes()
     assert b"sk-alice-secret" not in db_path.read_bytes()
+
+
+def test_llm_settings_are_per_provider(client):
+    """base_url/model are stored and restored per provider, per user."""
+    client.put("/api/config", json={"llm_provider": "custom", "llm_base_url": "http://muse:8080/v1",
+                                  "llm_model": "muse-code"})
+    cfg = client.get("/api/config").json()
+    assert cfg["llm_base_url"] == "http://muse:8080/v1"
+    assert cfg["llm_model"] == "muse-code"
+    assert any(p["id"] == "gemini" and p["base_url"] for p in cfg["providers"])
+
+    # switching provider restores the gemini preset, muse values must not leak
+    client.put("/api/config", json={"llm_provider": "gemini"})
+    cfg = client.get("/api/config").json()
+    assert cfg["llm_provider"] == "gemini"
+    assert "muse" not in cfg["llm_base_url"]
+    assert cfg["llm_model"] != "muse-code"
+
+    # editing gemini's settings must not touch custom's
+    client.put("/api/config", json={"llm_model": "gemini-2.5-pro"})
+    assert client.get("/api/config").json()["llm_model"] == "gemini-2.5-pro"
+    client.put("/api/config", json={"llm_provider": "custom"})
+    assert client.get("/api/config").json()["llm_base_url"] == "http://muse:8080/v1"
+
+
+def test_legacy_llm_fields_migrate(client):
+    """Legacy top-level llm_base_url/llm_model are moved into the provider bucket."""
+    import json, sqlite3, time
+    import server.deps as deps
+
+    db_path = deps.get_settings().data_dir / "jobs.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT OR REPLACE INTO user_settings (user_id, settings, updated_at) VALUES (?, ?, ?)",
+        (
+            conn.execute("SELECT id FROM users LIMIT 1").fetchone()[0],
+            json.dumps({"llm_provider": "custom", "llm_base_url": "http://legacy:9000/v1",
+                        "llm_model": "legacy-model"}),
+            time.time(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    cfg = client.get("/api/config").json()
+    assert cfg["llm_base_url"] == "http://legacy:9000/v1"
+    assert cfg["llm_model"] == "legacy-model"
+    # the migration wrote the bucket back; raw JSON no longer has top-level keys
+    conn = sqlite3.connect(db_path)
+    data = json.loads(conn.execute("SELECT settings FROM user_settings").fetchone()[0])
+    conn.close()
+    assert "llm_base_url" not in data
+    assert data["llm_providers"]["custom"]["base_url"] == "http://legacy:9000/v1"

@@ -2,9 +2,13 @@
 """Per-user settings: a sparse JSON overlay on the server config.
 
 Only fields the user explicitly changed are stored; everything else is
-inherited live from the global (operator-managed) config, so changing the
-operator default affects users who have not overridden the field, and
-overrides are never silently overwritten by config-file changes.
+inherited live from the global (operator-managed) config.
+
+LLM connection details (``base_url``, ``model``) are stored **per provider**
+under the ``llm_providers`` key so switching provider in the UI restores
+that provider's own settings instead of leaking the previous one's.
+On read, legacy top-level ``llm_base_url``/``llm_model`` entries are
+migrated into the bucket of the stored ``llm_provider`` (once).
 """
 
 from __future__ import annotations
@@ -23,8 +27,8 @@ CREATE TABLE IF NOT EXISTS user_settings (
 );
 """
 
-# Fields a user may override for themselves. Anything else (vector backend,
-# Qdrant, embedding model, chunking, pdf_dir) is operator-managed.
+# Scalar fields a user may override for themselves. Vector backend, Qdrant,
+# embeddings, chunking stay operator-managed.
 USER_FIELDS = (
     "llm_enabled",
     "llm_provider",
@@ -33,6 +37,10 @@ USER_FIELDS = (
     "retrieve_k",
     "final_n",
     "use_reranker",
+)
+
+_SCALAR_FIELDS = tuple(
+    f for f in USER_FIELDS if f not in ("llm_base_url", "llm_model")
 )
 
 _write_lock = threading.Lock()
@@ -56,6 +64,21 @@ def init_db(db_path: Path) -> None:
             conn.close()
 
 
+def _migrate(data: dict) -> tuple[dict, bool]:
+    """Move legacy top-level llm_base_url/llm_model into the per-provider
+    bucket. Returns (data, migrated?)."""
+    providers = data.setdefault("llm_providers", {})
+    migrated = False
+    for key, field in (("llm_base_url", "base_url"), ("llm_model", "model")):
+        if key in data:
+            value = data.pop(key)
+            provider = data.get("llm_provider") or "custom"
+            bucket = providers.setdefault(provider, {})
+            bucket.setdefault(field, value)
+            migrated = True
+    return data, migrated
+
+
 def get(db_path: Path, user_id: str) -> dict:
     conn = _connect(db_path)
     try:
@@ -70,14 +93,17 @@ def get(db_path: Path, user_id: str) -> dict:
         data = json.loads(row["settings"])
     except json.JSONDecodeError:
         return {}
-    return {k: v for k, v in data.items() if k in USER_FIELDS}
+    if not isinstance(data, dict):
+        return {}
+
+    data, migrated = _migrate(data)
+    if migrated:
+        _put_raw(db_path, user_id, data)
+    return data
 
 
-def patch(db_path: Path, user_id: str, updates: dict) -> dict:
-    updates = {k: v for k, v in updates.items() if k in USER_FIELDS}
-    current = get(db_path, user_id)
-    current.update(updates)
-    payload = json.dumps(current)
+def _put_raw(db_path: Path, user_id: str, data: dict) -> None:
+    payload = json.dumps(data)
     now = time.time()
     with _write_lock:
         conn = _connect(db_path)
@@ -91,4 +117,24 @@ def patch(db_path: Path, user_id: str, updates: dict) -> dict:
             conn.commit()
         finally:
             conn.close()
-    return current
+
+
+def patch(db_path: Path, user_id: str, updates: dict,
+          default_provider: str = "custom") -> dict:
+    """Merge a sparse update; routes base_url/model into the provider bucket."""
+    data = get(db_path, user_id)
+    updates = dict(updates)
+
+    active_provider = updates.get("llm_provider") or data.get("llm_provider") or default_provider
+    providers = data.setdefault("llm_providers", {})
+
+    for key, field in (("llm_base_url", "base_url"), ("llm_model", "model")):
+        if key in updates:
+            providers.setdefault(active_provider, {})[field] = updates.pop(key)
+
+    for key, value in updates.items():
+        if key in _SCALAR_FIELDS:
+            data[key] = value
+
+    _put_raw(db_path, user_id, data)
+    return data
