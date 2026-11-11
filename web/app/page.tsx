@@ -90,16 +90,37 @@ export default function Home() {
   const { user, ready: authReady } = useRequireAuth();
   const [status, setStatus] = useState<"loading" | "ok" | "offline">("loading");
   const [projects, setProjects] = useState<Project[]>([]);
+  const [latestChats, setLatestChats] = useState<Record<string, string>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const [adding, setAdding] = useState<string | null>(null); // upload progress text
 
+  const openProjectHref = useCallback(
+    (p: Project) => `/project/${p.id}/chat/${latestChats[p.id] ?? makeChatId()}`,
+    [latestChats]
+  );
+
   const loadProjects = useCallback(async () => {
     if (!authReady) return;
     try {
       const res = await api.projects();
-      setProjects(res.projects || []);
+      const list = res.projects || [];
+      setProjects(list);
+      // Latest chat id per project, so cards resume instead of starting fresh.
+      const entries = await Promise.all(
+        list.map(async (p) => {
+          try {
+            const chats = await api.listChats(p.id);
+            return [p.id, chats.chats?.[0]?.id as string | undefined] as const;
+          } catch {
+            return [p.id, undefined] as const;
+          }
+        })
+      );
+      const latest: Record<string, string> = {};
+      for (const [pid, chatId] of entries) if (chatId) latest[pid] = chatId;
+      setLatestChats(latest);
     } catch {}
   }, [authReady]);
 
@@ -234,15 +255,15 @@ export default function Home() {
           </button>
 
           {projects.map((p) => (
-            <Link key={p.id} href={`/project/${p.id}/chat/${makeChatId()}`} className="group" onClick={() => {}}>
-              <Card className="flex h-full min-h-[220px] flex-col transition-all hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-md">
+            <Link key={p.id} href={openProjectHref(p)} className="group">
+              <Card className="flex h-full min-h-[220px] flex-col transition-all hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-md" title="Resume the latest chat in this library">
                 <CardHeader>
                   <div className="mb-1 flex items-center justify-between">
                     <div className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
                       <BookOpen className="size-4" />
                     </div>
                     <CardMenu
-                      onOpen={() => router.push(`/project/${p.id}/chat/${makeChatId()}`)}
+                      onOpen={() => router.push(openProjectHref(p))}
                       onDelete={() => deleteProject(p.id)}
                     />
                   </div>
@@ -253,6 +274,9 @@ export default function Home() {
                 </CardHeader>
                 <CardContent className="mt-auto">
                   <p className="font-mono text-[10px] text-muted-foreground">{p.id.slice(0, 8)} · {p.qdrant_collection}</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    {latestChats[p.id] ? "Resumes your last chat" : "No chats yet · opens a fresh one"}
+                  </p>
                 </CardContent>
               </Card>
             </Link>
