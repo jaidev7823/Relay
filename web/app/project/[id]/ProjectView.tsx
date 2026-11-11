@@ -65,7 +65,7 @@ function CitationChip({
   onOpen?: (s: ChatSource) => void;
 }) {
   return (
-    <span className="group/cite relative inline-flex align-super">
+    <span className="group/cite relative mx-0.5 inline-flex align-middle">
       <button
         type="button"
         onClick={(e) => {
