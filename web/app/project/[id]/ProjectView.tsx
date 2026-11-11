@@ -201,6 +201,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatUnavailable, setChatUnavailable] = useState(false);
   const [input, setInput] = useState("");
   const [llmEnabled, setLlmEnabled] = useState(true);
   const [selected, setSelected] = useState<ChatSource | null>(null);
@@ -218,11 +219,13 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
   useEffect(() => {
     if (!authReady) return; // wait for the session check so cache keys use the right user
     chatLoadedRef.current = false;
+    setChatUnavailable(false);
     let cancelled = false;
     (async () => {
       const chat = await loadChat(projectId, chatId);
       if (cancelled) return;
       chatMetaRef.current.createdAt = chat.createdAt || Date.now();
+      setChatUnavailable(!!chat.notFound);
       setMessages(chat.messages || []);
       chatLoadedRef.current = true;
     })();
@@ -231,10 +234,10 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
 
   useEffect(() => {
     if (!chatLoadedRef.current || !authReady) return;
-    if (asking) return; // save after response completes (and on final state)
+    if (asking || chatUnavailable) return; // don't resurrect an unavailable chat
     const title = messages.find((m) => m.role === "user")?.content.slice(0, 60) || "New chat";
     void saveChat({ id: chatId, projectId, title, createdAt: chatMetaRef.current.createdAt, updatedAt: Date.now(), messages });
-  }, [messages, projectId, chatId, asking]);
+  }, [messages, projectId, chatId, asking, chatUnavailable]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -448,6 +451,12 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
         </div>
       </header>
 
+      {chatUnavailable && (
+        <div className="flex items-center justify-between gap-2 border-b bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <span>This chat is not available — it belongs to another account or was deleted. You can start a new chat instead.</span>
+          <Link href="/" className="shrink-0 font-medium underline underline-offset-2 hover:text-foreground">Back to libraries</Link>
+        </div>
+      )}
       {error && (
         <div className="border-b bg-red-500/10 px-4 py-2 text-xs text-red-600 dark:text-red-400">
           Backend: {error} — ensure FastAPI is running on port 8000 and Qdrant is up.
@@ -582,7 +591,8 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-                placeholder={info ? "Ask a question about your papers…" : "Build the index first, then ask a question…"}
+                disabled={chatUnavailable}
+                placeholder={chatUnavailable ? "This chat is not available." : info ? "Ask a question about your papers…" : "Build the index first, then ask a question…"}
                 className="min-h-[60px] resize-none border-0 shadow-none focus-visible:ring-0"
               />
               <div className="flex items-center justify-between px-1 pb-1 pt-2">
@@ -590,7 +600,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
                   <Badge variant={llmEnabled ? "success" : "secondary"} className="h-5 px-1.5 text-[10px]">LLM {llmEnabled ? "on" : "off"}</Badge>
                   <span>Enter to send · Shift+Enter for newline</span>
                 </div>
-                <Button size="sm" onClick={send} disabled={asking || !input.trim()}>
+                <Button size="sm" onClick={send} disabled={asking || chatUnavailable || !input.trim()}>
                   {asking ? <LoaderCircle className="size-3.5 animate-spin" /> : <Send className="size-3.5" />} Ask
                 </Button>
               </div>

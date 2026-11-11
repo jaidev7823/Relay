@@ -25,6 +25,10 @@ export type ChatThread = {
   createdAt: number;
   updatedAt: number;
   messages: ChatMessage[];
+  /** true when the backend said this chat does not exist for this user
+   *  (owned by another account or deleted). UI shows a notice instead of a
+   *  misleading empty chat. */
+  notFound?: boolean;
 };
 
 // Local cache is keyed per user so two accounts in the same browser
@@ -89,7 +93,7 @@ export async function loadChat(projectId: string, chatId: string): Promise<ChatT
     // 401/404: the backend has decided this chat is not ours. Do NOT fall
     // back to the local cache — that could leak another account's chat.
     if (e?.status === 401 || e?.status === 404) {
-      return emptyChat(projectId, chatId);
+      return { ...emptyChat(projectId, chatId), notFound: true };
     }
     // Other errors (backend offline): fall back to the local cache.
   }
