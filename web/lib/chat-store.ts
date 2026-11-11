@@ -33,10 +33,29 @@ let currentUserId = "anon";
 
 export function setCurrentUserId(userId: string) {
   currentUserId = userId || "anon";
+  purgeLegacyCache();
 }
 
 const key = (projectId: string, chatId: string) =>
   `relevantr:chat:${currentUserId}:${projectId}:${chatId}`;
+
+/** Remove pre-auth cache entries (relevantr:chat:<projectId>:<chatId>)
+ *  which were shared across accounts on the same browser. */
+function purgeLegacyCache() {
+  if (typeof window === "undefined") return;
+  try {
+    const dead: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith("relevantr:chat:")) {
+        const parts = k.split(":");
+        // legacy = 4 parts (no user id), current = 5 parts
+        if (parts.length === 4) dead.push(k);
+      }
+    }
+    dead.forEach((k) => localStorage.removeItem(k));
+  } catch {}
+}
 
 function emptyChat(projectId: string, chatId: string): ChatThread {
   return { id: chatId, projectId, title: "New chat", createdAt: Date.now(), updatedAt: Date.now(), messages: [] };

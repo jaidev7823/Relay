@@ -191,6 +191,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
   const chatMetaRef = useRef<{ createdAt: number }>({ createdAt: Date.now() });
 
   useEffect(() => {
+    if (!authReady) return; // wait for the session check so cache keys use the right user
     chatLoadedRef.current = false;
     let cancelled = false;
     (async () => {
@@ -201,10 +202,10 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
       chatLoadedRef.current = true;
     })();
     return () => { cancelled = true; };
-  }, [projectId, chatId]);
+  }, [projectId, chatId, authReady]);
 
   useEffect(() => {
-    if (!chatLoadedRef.current) return;
+    if (!chatLoadedRef.current || !authReady) return;
     if (asking) return; // save after response completes (and on final state)
     const title = messages.find((m) => m.role === "user")?.content.slice(0, 60) || "New chat";
     void saveChat({ id: chatId, projectId, title, createdAt: chatMetaRef.current.createdAt, updatedAt: Date.now(), messages });
