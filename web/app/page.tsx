@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, Database, Ellipsis, FileText, Layers3, MessageSquarePlus, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { BookOpen, Ellipsis, MessageSquarePlus, Pencil, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { api, type IndexInfo } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { UserMenu } from "@/components/user-menu";
 import { cn } from "@/lib/utils";
@@ -87,8 +87,6 @@ function CardMenu({
 
 export default function Home() {
   const { user, ready: authReady } = useRequireAuth();
-  const [info, setInfo] = useState<IndexInfo | null>(null);
-  const [config, setConfig] = useState<any>(null);
   const [status, setStatus] = useState<"loading" | "ok" | "no-index" | "offline">("loading");
   const [newChatHref, setNewChatHref] = useState("/project/default/chat/new");
   const [sessions, setSessions] = useState<{ id: string; title: string; updated_at: number }[]>([]);
@@ -122,12 +120,7 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       try {
-        const c = await api.config();
-        setConfig(c);
-      } catch {}
-      try {
-        const i = await api.indexInfo();
-        setInfo(i);
+        await api.indexInfo();
         setStatus("ok");
       } catch {
         try {
@@ -186,39 +179,6 @@ export default function Home() {
               <p className="mt-1 max-w-[220px] text-center text-sm">
                 Start a new conversation in the library (gets a unique URL).
               </p>
-            </Card>
-          </Link>
-
-          <Link href={newChatHref} className="group">
-            <Card className="flex h-full min-h-[220px] flex-col transition-all hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-md">
-              <CardHeader>
-                <div className="mb-1 flex items-center justify-between">
-                  <div className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                    <Layers3 className="size-4" />
-                  </div>
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Database className="size-3" />
-                    Qdrant
-                  </span>
-                </div>
-                <CardTitle className="text-lg">Default library</CardTitle>
-                <CardDescription className="line-clamp-2">
-                  {config?.pdf_dir ? `PDF folder: ${config.pdf_dir}` : "Configure a PDF folder, index it, and chat with citations."}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="mt-auto">
-                {info ? (
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1.5"><FileText className="size-4" />{info.documents} papers</span>
-                    <span>{info.chunks.toLocaleString()} chunks</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <RefreshCw className="size-3.5" />
-                    {status === "offline" ? "Start backend to connect" : status === "no-index" ? "Build index to begin" : "Loading…"}
-                  </div>
-                )}
-              </CardContent>
             </Card>
           </Link>
 
