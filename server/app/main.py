@@ -26,6 +26,10 @@ from .. import __version__ as server_version
 from ..deps import State, get_state
 from ..ingest_jobs import JobConflictError
 from ..schemas import (
+    ChatListOut,
+    ChatOut,
+    ChatSaveIn,
+    ChatSummaryOut,
     ConfigIn,
     ConfigOut,
     DocumentListOut,
@@ -315,6 +319,36 @@ def _run_query(st: State, question: str):
         client = LLMClient.from_config(st.config)
         answer = client.answer(question, passages)
     return passages, answer
+
+
+# --------------------------------------------------------------------- chats
+
+
+@app.get("/api/projects/{project_id}/chats", response_model=ChatListOut, tags=["chats"])
+def list_project_chats(project_id: str, st: State = Depends(state)) -> ChatListOut:
+    return ChatListOut(chats=[ChatSummaryOut(**c) for c in st.list_chats(project_id)])
+
+
+@app.get("/api/chats/{chat_id}", response_model=ChatOut, tags=["chats"])
+def get_chat(chat_id: str, st: State = Depends(state)) -> ChatOut:
+    chat = st.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(404, f"chat '{chat_id}' not found")
+    return ChatOut(**chat)
+
+
+@app.put("/api/chats/{chat_id}", response_model=ChatOut, tags=["chats"])
+def save_chat(chat_id: str, body: ChatSaveIn, st: State = Depends(state)) -> ChatOut:
+    messages = [m.model_dump() for m in body.messages]
+    chat = st.save_chat(chat_id, body.project_id, body.title, messages)
+    return ChatOut(**chat)
+
+
+@app.delete("/api/chats/{chat_id}", tags=["chats"])
+def delete_chat(chat_id: str, st: State = Depends(state)) -> dict:
+    if not st.delete_chat(chat_id):
+        raise HTTPException(404, f"chat '{chat_id}' not found")
+    return {"ok": True}
 
 
 # ----------------------------------------------------------------- documents

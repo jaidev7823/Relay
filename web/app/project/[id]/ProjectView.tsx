@@ -184,15 +184,28 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // chat persistence
+  const chatLoadedRef = useRef(false);
+  const chatMetaRef = useRef<{ createdAt: number }>({ createdAt: Date.now() });
+
   useEffect(() => {
-    const chat = loadChat(projectId, chatId);
-    setMessages(chat.messages || []);
+    chatLoadedRef.current = false;
+    let cancelled = false;
+    (async () => {
+      const chat = await loadChat(projectId, chatId);
+      if (cancelled) return;
+      chatMetaRef.current.createdAt = chat.createdAt || Date.now();
+      setMessages(chat.messages || []);
+      chatLoadedRef.current = true;
+    })();
+    return () => { cancelled = true; };
   }, [projectId, chatId]);
 
   useEffect(() => {
+    if (!chatLoadedRef.current) return;
+    if (asking) return; // save after response completes (and on final state)
     const title = messages.find((m) => m.role === "user")?.content.slice(0, 60) || "New chat";
-    saveChat({ id: chatId, projectId, title, createdAt: Date.now(), updatedAt: Date.now(), messages });
-  }, [messages, projectId, chatId]);
+    void saveChat({ id: chatId, projectId, title, createdAt: chatMetaRef.current.createdAt, updatedAt: Date.now(), messages });
+  }, [messages, projectId, chatId, asking]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

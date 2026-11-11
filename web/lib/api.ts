@@ -90,4 +90,9 @@ export const api = {
   keyStatus: (provider: string) => request<{ provider: string; set: boolean; source: string }>(`/api/keys/${provider}`),
   setKey: (provider: string, key: string) => request<{ provider: string; set: boolean; source: string }>(`/api/keys/${provider}`, { method: "PUT", body: JSON.stringify({ key }) }),
   deleteKey: (provider: string) => request<{ provider: string; set: boolean; source: string }>(`/api/keys/${provider}`, { method: "DELETE" }),
+  listChats: (projectId: string) => request<{ chats: any[] }>(`/api/projects/${encodeURIComponent(projectId)}/chats`),
+  getChat: (chatId: string) => request<any>(`/api/chats/${encodeURIComponent(chatId)}`),
+  saveChat: (chatId: string, body: { project_id: string; title?: string; messages: any[] }) =>
+    request<any>(`/api/chats/${encodeURIComponent(chatId)}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteChat: (chatId: string) => request<{ ok: boolean }>(`/api/chats/${encodeURIComponent(chatId)}`, { method: "DELETE" }),
 };

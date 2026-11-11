@@ -141,3 +141,44 @@ class KeyIn(BaseModel):
 class ExportOut(BaseModel):
     filename: str
     content: str
+
+
+class ChatMessageIn(BaseModel):
+    id: str | None = None
+    role: str
+    content: str = ""
+    sources: list[dict] | None = None
+    error: str | None = None
+    created_at: float | None = None
+
+
+class ChatMessageOut(BaseModel):
+    id: str
+    chat_id: str
+    role: str
+    content: str
+    sources: list[dict] | None = None
+    error: str | None = None
+    created_at: float
+
+
+class ChatSummaryOut(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    created_at: float
+    updated_at: float
+
+
+class ChatOut(ChatSummaryOut):
+    messages: list[ChatMessageOut] = []
+
+
+class ChatSaveIn(BaseModel):
+    project_id: str = "default"
+    title: str | None = None
+    messages: list[ChatMessageIn] = []
+
+
+class ChatListOut(BaseModel):
+    chats: list[ChatSummaryOut]

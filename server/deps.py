@@ -15,6 +15,7 @@ from relevantr.embed import EmbeddingBackend, get_backend
 from relevantr.rerank import Reranker
 from relevantr.store import VectorStore, get_store
 
+from . import chats as chats_db
 from . import jobs as jobs_db
 from .ingest_jobs import JobRunner
 from .settings import get_settings
@@ -84,6 +85,7 @@ class State:
 
     def init_jobs_db(self) -> None:
         jobs_db.init_db(self.jobs_db_path)
+        chats_db.init_db(self.jobs_db_path)
 
     # -- jobs --------------------------------------------------------------
 
@@ -92,6 +94,20 @@ class State:
 
     def jobs_list(self, limit: int = 50) -> list[dict]:
         return jobs_db.list_jobs(self.jobs_db_path, limit=limit)
+
+    # -- chats -------------------------------------------------------------
+
+    def list_chats(self, project_id: str) -> list[dict]:
+        return chats_db.list_chats(self.jobs_db_path, project_id)
+
+    def get_chat(self, chat_id: str) -> dict | None:
+        return chats_db.get_chat(self.jobs_db_path, chat_id)
+
+    def save_chat(self, chat_id: str, project_id: str, title: str | None, messages: list[dict]) -> dict | None:
+        return chats_db.save_messages(self.jobs_db_path, chat_id, project_id, title, messages)
+
+    def delete_chat(self, chat_id: str) -> bool:
+        return chats_db.delete_chat(self.jobs_db_path, chat_id)
 
 
 _state: State | None = None
