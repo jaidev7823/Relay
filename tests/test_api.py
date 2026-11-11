@@ -363,3 +363,24 @@ def test_projects_upload_and_delete(client):
     client.post("/api/auth/login", json={"username": "tester", "password": "secret123"})
     assert client.delete(f"/api/projects/{project['id']}").status_code == 200
     assert client.get("/api/projects").json()["projects"] == []
+
+
+def test_document_page_render(client):
+    """Cited-page preview: PNG render of a real page, 404 for junk input."""
+    # the fixture builds the index over tmp pdfs (one.pdf, two.pdf)
+    client.post("/api/index/build")
+    import time
+    for _ in range(100):
+        jobs = client.get("/api/jobs").json()["jobs"]
+        if not jobs or jobs[0]["status"] in ("done", "failed"):
+            break
+        time.sleep(0.1)
+
+    r = client.get("/api/documents/page?name=one.pdf&page=1")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+    assert client.get("/api/documents/page?name=one.pdf&page=99").status_code == 404
+    assert client.get("/api/documents/page?name=../jobs.db&page=1").status_code == 400
+    assert client.get("/api/documents/page?name=missing.pdf&page=1").status_code == 404

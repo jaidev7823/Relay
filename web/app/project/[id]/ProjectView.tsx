@@ -2,21 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-
-const PdfPageViewer = dynamic(
-  () => import("@/components/pdf-page-viewer").then((m) => m.PdfPageViewer),
-  { ssr: false, loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading viewer…</div> }
-);
 import {
   BookOpen,
+  ChevronDown,
   ChevronLeft,
   CircleAlert,
   CircleCheck,
   CircleDashed,
+  ExternalLink,
   FileText,
   LoaderCircle,
   MessageSquarePlus,
@@ -169,6 +165,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
   const [dragging, setDragging] = useState<"left" | "right" | null>(null);
   const dragRef = useRef<{ side: "left" | "right"; startX: number; startW: number } | null>(null);
   const [rightTab, setRightTab] = useState<"sources" | "page">("sources");
+  const [textOpen, setTextOpen] = useState(false);
 
   const [config, setConfig] = useState<any>(null);
   const [info, setInfo] = useState<IndexInfo | null>(null);
@@ -601,8 +598,44 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
                       Cited page {selected.page} · relevance {(selected.score * 100).toFixed(0)}%
                     </p>
                   </div>
-                  <div className="min-h-0 flex-1">
-                    <PdfPageViewer fileName={selected.file} pageNumber={selected.page} projectId={projectId} />
+                  <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                    <img
+                      key={`${selected.id}`}
+                      src={`/api/documents/page?name=${encodeURIComponent(selected.file)}&project_id=${encodeURIComponent(projectId)}&page=${selected.page}`}
+                      alt={`Page ${selected.page} of ${selected.file}`}
+                      className="w-full rounded-md border bg-white shadow-sm"
+                    />
+                    {/* Extracted text accordion */}
+                    <div className="mt-3 overflow-hidden rounded-lg border">
+                      <button
+                        onClick={() => setTextOpen((v) => !v)}
+                        className="flex w-full items-center justify-between bg-background px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        <span>Extracted text — cited passage</span>
+                        <ChevronDown className={cn("size-4 transition-transform duration-200", textOpen && "rotate-180")} />
+                      </button>
+                      {textOpen && (
+                        <div className="border-t bg-amber-500/5 px-3 py-2">
+                          <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/90">{selected.snippet}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="shrink-0 border-t bg-background/50 p-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() =>
+                        window.open(
+                          `/api/documents/file?name=${encodeURIComponent(selected.file)}&project_id=${encodeURIComponent(projectId)}#page=${selected.page}`,
+                          "_blank",
+                          "noopener"
+                        )
+                      }
+                    >
+                      <ExternalLink className="size-3.5" /> View in PDF viewer
+                    </Button>
                   </div>
                 </>
               ) : (

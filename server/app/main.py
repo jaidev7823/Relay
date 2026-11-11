@@ -516,13 +516,28 @@ def delete_chat(chat_id: str, user: dict = Depends(require_user),
 @app.get("/api/documents/file", tags=["index"])
 def document_file(name: str, project_id: str | None = None,
                   user: dict = Depends(require_user), st: State = Depends(state)):
-    """Serve a PDF from the configured pdf_dir (for the in-app viewer)."""
+    """Serve a PDF from the project's pdf_dir (for the browser's native viewer)."""
+    from fastapi.responses import FileResponse
+
+    path = _resolve_pdf(st, user, name, project_id)
+    name = path.name
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=name,
+        headers={"Content-Disposition": f'inline; filename="{name}"'},
+    )
+
+
+def _resolve_pdf(st: State, user: dict, name: str, project_id: str | None) -> Path:
+    """Resolve a document name to a PDF path on disk, scoped to the project
+    (or the global config). Raises 400/404 on anything suspicious."""
     import pathlib
+
     config = st.config
     if project_id:
         project = _require_project(st, user, project_id)
         config = st.project_config(project)
-    from fastapi.responses import FileResponse
 
     if not name or "/" in name or "\\" in name or ".." in name or name != pathlib.Path(name).name:
         raise HTTPException(400, "invalid document name")
@@ -536,12 +551,29 @@ def document_file(name: str, project_id: str | None = None,
         raise HTTPException(400, "invalid document name")
     if not path.is_file() or path.suffix.lower() != ".pdf":
         raise HTTPException(404, "document not found")
-    return FileResponse(
-        path,
-        media_type="application/pdf",
-        filename=name,
-        headers={"Content-Disposition": f'inline; filename="{name}"'},
-    )
+    return path
+
+
+@app.get("/api/documents/page", tags=["index"])
+def document_page(name: str, project_id: str | None = None, page: int = 1,
+                  user: dict = Depends(require_user), st: State = Depends(state)):
+    """Render one PDF page to PNG (used by the cited-page preview)."""
+    path = _resolve_pdf(st, user, name, project_id)
+    try:
+        import fitz  # pymupdf
+    except ImportError:
+        raise HTTPException(501, "page rendering unavailable (pymupdf not installed)")
+
+    doc = fitz.open(path)
+    try:
+        if page < 1 or page > doc.page_count:
+            raise HTTPException(404, f"page {page} out of range (1-{doc.page_count})")
+        pix = doc[page - 1].get_pixmap(matrix=fitz.Matrix(150 / 72, 150 / 72))
+        png = pix.tobytes("png")
+    finally:
+        doc.close()
+    return Response(png, media_type="image/png",
+                    headers={"Cache-Control": "private, max-age=3600"})
 
 
 # -------------------------------------------------------------------- export
