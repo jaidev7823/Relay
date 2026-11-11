@@ -37,6 +37,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { SettingsDialog } from "@/components/settings-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { api, type Doc, type IndexInfo, type Job } from "@/lib/api";
 import { loadChat, saveChat, type ChatMessage, type ChatSource } from "@/lib/chat-store";
@@ -172,6 +173,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -363,6 +365,9 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
             <Switch checked={llmEnabled} onCheckedChange={setLlmEnabled} />
           </label>
           <ThemeToggle />
+          <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
+            <Settings2 className="size-3.5" /> Settings
+          </Button>
           <Button variant="outline" size="sm" onClick={newChat}>
             <MessageSquarePlus className="size-3.5" /> New chat
           </Button>
@@ -585,6 +590,12 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
           </Tabs>
         </aside>
       </div>
+
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={() => { refresh(); }}
+      />
     </div>
   );
 }

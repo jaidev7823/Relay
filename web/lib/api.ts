@@ -85,4 +85,9 @@ export const api = {
     if (!res.ok) throw new Error("Export failed");
     return res.text();
   },
+  llmTest: () => request<{ ok: boolean; message: string }>("/api/llm/test", { method: "POST" }),
+  llmModels: () => request<{ models: string[] }>("/api/llm/models"),
+  keyStatus: (provider: string) => request<{ provider: string; set: boolean; source: string }>(`/api/keys/${provider}`),
+  setKey: (provider: string, key: string) => request<{ provider: string; set: boolean; source: string }>(`/api/keys/${provider}`, { method: "PUT", body: JSON.stringify({ key }) }),
+  deleteKey: (provider: string) => request<{ provider: string; set: boolean; source: string }>(`/api/keys/${provider}`, { method: "DELETE" }),
 };
