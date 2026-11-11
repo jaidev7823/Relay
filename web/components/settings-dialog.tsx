@@ -83,7 +83,6 @@ export function SettingsDialog({
       const body = {
         retrieve_k: Number(cfg.retrieve_k),
         final_n: Number(cfg.final_n),
-        use_reranker: !!cfg.use_reranker,
         llm_enabled: !!cfg.llm_enabled,
         llm_provider: cfg.llm_provider,
         llm_base_url: cfg.llm_base_url,
@@ -190,8 +189,8 @@ export function SettingsDialog({
 
             <div className="flex-1 overflow-y-auto p-4">
               <TabsContent value="index" className="m-0 space-y-4">
-                <Field label="PDF folder (server path)" hint="Folder scanned for PDFs to index.">
-                  <Input value={cfg.pdf_dir || ""} onChange={(e) => set("pdf_dir", e.target.value)} placeholder="/path/to/papers" />
+                <Field label="PDF folder (server path)" hint="Managed on the server.">
+                  <Input value={cfg.pdf_dir || ""} disabled placeholder="/path/to/papers" />
                 </Field>
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Chunk size" hint="Managed on the server."><Input type="number" value={cfg.chunk_size} disabled /></Field>
@@ -199,13 +198,7 @@ export function SettingsDialog({
                   <Field label="Retrieve k" hint="Candidates before rerank."><Input type="number" value={cfg.retrieve_k} onChange={(e) => set("retrieve_k", e.target.value)} /></Field>
                   <Field label="Final n" hint="Passages sent to LLM."><Input type="number" value={cfg.final_n} onChange={(e) => set("final_n", e.target.value)} /></Field>
                 </div>
-                <div className="flex items-center justify-between rounded-lg border p-3">
-                  <div>
-                    <p className="text-sm font-medium">Use reranker</p>
-                    <p className="text-xs text-muted-foreground">Cross-encoder reranking for better passage ordering.</p>
-                  </div>
-                  <Switch checked={!!cfg.use_reranker} onCheckedChange={(v) => set("use_reranker", v)} />
-                </div>
+                <p className="text-[11px] text-muted-foreground">The reranker is always on (cross-encoder, top 60 candidates → 12 passages).</p>
                 <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
                   <p><span className="font-medium text-foreground">Backend:</span> {cfg.vector_backend} · {cfg.embedding_backend}</p>
                   <p className="mt-1 truncate"><span className="font-medium text-foreground">Qdrant:</span> {cfg.qdrant_url} / {cfg.qdrant_collection}</p>

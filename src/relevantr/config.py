@@ -125,8 +125,8 @@ class AppConfig:
     chunk_overlap: int = 150
 
     # Retrieval
-    retrieve_k: int = 30
-    final_n: int = 8
+    retrieve_k: int = 60
+    final_n: int = 12
     use_reranker: bool = True
 
     # LLM answer layer (default OFF: retrieval-only)

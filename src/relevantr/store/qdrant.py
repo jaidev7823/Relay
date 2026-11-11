@@ -15,8 +15,10 @@ fused with reciprocal-rank fusion, mirroring the LanceDB hybrid search.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from pathlib import Path
+from collections import Counter
 
 import numpy as np
 
@@ -27,6 +29,14 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_QDRANT_URL = "http://localhost:6333"
 BM25_MODEL = "Qdrant/bm25"
+
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+(?:[-.][a-z0-9]+)*", re.IGNORECASE)
+
+
+def _tokenize(text: str) -> list[str]:
+    """Lowercase tokens; keeps hyphenated codes like 'CA5-10' intact."""
+    return _TOKEN_RE.findall(text.lower())
 
 
 def _point_id(chunk_id: str) -> str:
@@ -61,6 +71,7 @@ class QdrantStore(VectorStore):
         api_key: str | None = None,
         client=None,
         sparse_model: str = BM25_MODEL,
+        sparse_df_threshold: float = 0.5,
     ):
         self.collection = collection
         self.data_dir = Path(data_dir) / "libraries" / collection
@@ -70,6 +81,8 @@ class QdrantStore(VectorStore):
         self._sparse_model_name = sparse_model
         self._sparse_model = None
         self._sparse_is_bm25 = None
+        self._sparse_df_threshold = sparse_df_threshold
+        self._df_stats_cache = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -110,6 +123,61 @@ class QdrantStore(VectorStore):
                 self._sparse_is_bm25 = False
         return self._sparse_model
 
+    def _df_stats(self) -> tuple[Counter, int]:
+        """Document frequency of tokens over payload['text'], cached per store.
+
+        Used to strip corpus-common tokens from the sparse query lane so rare
+        identifiers (e.g. part codes) dominate keyword scoring. One scroll
+        pass; invalidated on index mutations.
+        """
+        if self._df_stats_cache is not None:
+            return self._df_stats_cache
+        df: Counter = Counter()
+        total = 0
+        offset = None
+        client = self._get_client()
+        while True:
+            points, offset = client.scroll(
+                collection_name=self.collection,
+                limit=500,
+                with_payload=True,
+                with_vectors=False,
+                offset=offset,
+            )
+            if not points:
+                break
+            total += len(points)
+            for point in points:
+                text = (point.payload or {}).get("text") or ""
+                for token in set(_tokenize(text)):
+                    df[token] += 1
+            if offset is None:
+                break
+        self._df_stats_cache = (df, total)
+        return self._df_stats_cache
+
+    def _filtered_query(self, query: str) -> str:
+        """Sparse-lane query with corpus-common tokens removed.
+
+        Falls back to the untouched query if stats are unavailable or nothing
+        would remain (both better than an empty sparse query).
+        """
+        try:
+            df, total = self._df_stats()
+        except Exception as exc:  # collection missing/unreadable
+            logger.warning("DF stats unavailable; sparse lane unfiltered (%s)", exc)
+            return query
+        if total == 0:
+            return query
+        kept = [
+            token
+            for token in _tokenize(query)
+            if df.get(token, 0) / total <= self._sparse_df_threshold
+        ]
+        if not kept:
+            return query
+        return " ".join(kept)
+
     def open_existing(self) -> Manifest:
         from .lance import LocationUnavailableError, RebuildRequiredError
 
@@ -147,6 +215,7 @@ class QdrantStore(VectorStore):
     def create(self, manifest: Manifest) -> None:
         from qdrant_client import models
 
+        self._df_stats_cache = None
         client = self._get_client()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         if client.collection_exists(self.collection):
@@ -186,6 +255,7 @@ class QdrantStore(VectorStore):
     # -- data operations ---------------------------------------------------
 
     def add_chunks(self, chunks, vectors) -> None:
+        self._df_stats_cache = None
         if len(chunks) == 0:
             return
         from qdrant_client import models
@@ -223,6 +293,7 @@ class QdrantStore(VectorStore):
             )
 
     def delete_source(self, filename: str) -> None:
+        self._df_stats_cache = None
         from qdrant_client import models
 
         self._get_client().delete(
@@ -251,6 +322,7 @@ class QdrantStore(VectorStore):
         client = self._get_client()
         dense = np.asarray(query_vector, dtype=np.float32).tolist()
         sparse = self._get_sparse_model()
+        sparse_query = self._filtered_query(query)
 
         prefetch = [
             models.Prefetch(query=dense, using="dense", limit=k),
@@ -258,7 +330,7 @@ class QdrantStore(VectorStore):
         if sparse is not None:
             prefetch.append(
                 models.Prefetch(
-                    query=_sparse(next(iter(sparse.embed([query])))),
+                    query=_sparse(next(iter(sparse.embed([sparse_query])))),
                     using="bm25",
                     limit=k,
                 )

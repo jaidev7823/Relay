@@ -153,7 +153,6 @@ def _config_out(st: State, user_id: str) -> ConfigOut:
         chunk_overlap=c.chunk_overlap,
         retrieve_k=c.retrieve_k,
         final_n=c.final_n,
-        use_reranker=c.use_reranker,
         llm_enabled=c.llm_enabled,
         llm_provider=c.llm_provider,
         llm_base_url=c.llm_base_url,

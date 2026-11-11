@@ -84,3 +84,43 @@ def test_build_and_query_with_qdrant(tmp_path, fake_embedder, monkeypatch):
     info = pipeline.index_info(config)
     assert info["documents"] == 3
     assert info["embedding_model"] == fake_embedder.name
+
+
+def test_df_filter_drops_corpus_common_tokens(tmp_path):
+    """Sparse-lane query strips corpus-common words, keeps rare identifiers."""
+    import uuid
+
+    from qdrant_client import QdrantClient, models
+    from relevantr.store.qdrant import QdrantStore, _tokenize
+
+    client = QdrantClient(":memory:")
+    client.create_collection(
+        collection_name="dftest",
+        vectors_config={"dense": models.VectorParams(size=4, distance=models.Distance.COSINE)},
+        sparse_vectors_config={"bm25": models.SparseVectorParams(index=models.SparseIndexParams(on_disk=False))},
+    )
+    # 9 chunks mention "price", exactly 1 mentions "CA5-10"
+    texts = [f"Electrification products price list page {i}" for i in range(9)]
+    texts.append("Front mounted single pole add-on blocks CA5-10 1SBN010010R1010 350")
+    for i, t in enumerate(texts):
+        client.upsert(
+            collection_name="dftest",
+            points=[models.PointStruct(
+                id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"chunk-{i}")),
+                vector={"dense": [1.0, 0.0, 0.0, 0.0]},
+                payload={"text": t, "source": "x.pdf", "page": i + 1, "chunk_id": f"c-{i}"},
+            )],
+        )
+
+    store = QdrantStore("dftest", tmp_path, client=client)
+    df, total = store._df_stats()
+    assert total == 10
+    assert df["price"] == 9
+
+    filtered = store._filtered_query("CA5-10 price")
+    tokens = _tokenize(filtered)
+    assert "price" not in tokens
+    assert "ca5-10" in tokens
+
+    # corpus grabs everything -> fall back, never return empty
+    assert store._filtered_query("price price price") != ""

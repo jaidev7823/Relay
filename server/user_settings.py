@@ -36,7 +36,6 @@ USER_FIELDS = (
     "llm_model",
     "retrieve_k",
     "final_n",
-    "use_reranker",
 )
 
 _SCALAR_FIELDS = tuple(

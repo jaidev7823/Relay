@@ -267,8 +267,7 @@ def query_index(
         )
         for row in rows
     ]
-    if config.use_reranker and passages:
-        reranker = reranker or Reranker()
+    if reranker and passages:
         passages = reranker.rerank(question, passages, top_n=config.final_n)
     else:
         passages = passages[: config.final_n]

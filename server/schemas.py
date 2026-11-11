@@ -33,7 +33,6 @@ class ConfigOut(BaseModel):
     chunk_overlap: int
     retrieve_k: int
     final_n: int
-    use_reranker: bool
     llm_enabled: bool
     llm_provider: str
     llm_base_url: str
@@ -53,7 +52,6 @@ class ConfigIn(BaseModel):
     chunk_overlap: int | None = Field(default=None, ge=0, le=4000)
     retrieve_k: int | None = Field(default=None, ge=1, le=200)
     final_n: int | None = Field(default=None, ge=1, le=50)
-    use_reranker: bool | None = None
     llm_enabled: bool | None = None
     llm_provider: str | None = None
     llm_base_url: str | None = None

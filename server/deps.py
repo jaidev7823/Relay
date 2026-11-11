@@ -74,10 +74,11 @@ class State:
                     self._embedder = get_backend(self.config)
         return self._embedder
 
-    def reranker(self) -> Reranker | None:
-        if self.config.use_reranker and self._reranker is None:
+    def reranker(self) -> Reranker:
+        """Always-on cross-encoder reranker for web queries."""
+        if self._reranker is None:
             self._reranker = Reranker()
-        return self._reranker if self.config.use_reranker else None
+        return self._reranker
 
     def invalidate_models(self) -> None:
         self._embedder = None
