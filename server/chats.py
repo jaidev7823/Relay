@@ -164,6 +164,20 @@ def save_messages(db_path: Path, chat_id: str, project_id: str, title: str | Non
     return get_chat(db_path, chat_id)
 
 
+def assign_orphan_chats(db_path: Path, user_id: str) -> int:
+    """Claim pre-auth chats (user_id NULL) for the first registered user."""
+    with _write_lock:
+        conn = _connect(db_path)
+        try:
+            cur = conn.execute(
+                "UPDATE chats SET user_id = ? WHERE user_id IS NULL", (user_id,)
+            )
+            conn.commit()
+            return cur.rowcount
+        finally:
+            conn.close()
+
+
 def delete_chat(db_path: Path, chat_id: str) -> bool:
     with _write_lock:
         conn = _connect(db_path)

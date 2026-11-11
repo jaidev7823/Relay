@@ -131,6 +131,15 @@ def count_users(db_path: Path) -> int:
         conn.close()
 
 
+def first_user(db_path: Path) -> dict | None:
+    conn = _connect(db_path)
+    try:
+        row = conn.execute("SELECT * FROM users ORDER BY created_at LIMIT 1").fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
 def verify_login(db_path: Path, username: str, password: str) -> dict | None:
     user = get_user_by_username(db_path, username)
     if user and verify_password(password, user["password_hash"]):

@@ -361,7 +361,7 @@ def list_project_chats(project_id: str, user: dict = Depends(require_user),
 def get_chat(chat_id: str, user: dict = Depends(require_user),
              st: State = Depends(state)) -> ChatOut:
     chat = st.get_chat(chat_id)
-    if chat is None or (chat.get("user_id") and chat["user_id"] != user["id"]):
+    if chat is None or chat.get("user_id") != user["id"]:
         raise HTTPException(404, f"chat '{chat_id}' not found")
     return ChatOut(**chat)
 
@@ -370,7 +370,7 @@ def get_chat(chat_id: str, user: dict = Depends(require_user),
 def save_chat(chat_id: str, body: ChatSaveIn, user: dict = Depends(require_user),
               st: State = Depends(state)) -> ChatOut:
     existing = st.get_chat(chat_id)
-    if existing and existing.get("user_id") and existing["user_id"] != user["id"]:
+    if existing and existing.get("user_id") != user["id"]:
         raise HTTPException(404, f"chat '{chat_id}' not found")
     messages = [m.model_dump() for m in body.messages]
     chat = st.save_chat(chat_id, body.project_id, body.title, messages, user_id=user["id"])
@@ -381,7 +381,7 @@ def save_chat(chat_id: str, body: ChatSaveIn, user: dict = Depends(require_user)
 def delete_chat(chat_id: str, user: dict = Depends(require_user),
                 st: State = Depends(state)) -> dict:
     existing = st.get_chat(chat_id)
-    if existing is None or (existing.get("user_id") and existing["user_id"] != user["id"]):
+    if existing is None or existing.get("user_id") != user["id"]:
         raise HTTPException(404, f"chat '{chat_id}' not found")
     if not st.delete_chat(chat_id):
         raise HTTPException(404, f"chat '{chat_id}' not found")

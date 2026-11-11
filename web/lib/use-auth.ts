@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "./api";
+import { setCurrentUserId } from "./chat-store";
 
 export type CurrentUser = { id: string; username: string };
 
@@ -22,6 +23,7 @@ export function useRequireAuth(): { user: CurrentUser | null; ready: boolean } {
         const res = await api.me();
         if (!cancelled) {
           setUser(res.user);
+          setCurrentUserId(res.user.id);
           setReady(true);
         }
       } catch (e: any) {

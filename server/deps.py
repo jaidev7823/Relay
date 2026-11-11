@@ -89,6 +89,10 @@ class State:
         chats_db.init_db(self.jobs_db_path)
         users_db.init_db(self.jobs_db_path)
         users_db.purge_expired_sessions(self.jobs_db_path)
+        # Pre-auth chats belong to the first registered user, not to everyone.
+        first = users_db.first_user(self.jobs_db_path)
+        if first:
+            chats_db.assign_orphan_chats(self.jobs_db_path, first["id"])
 
     # -- jobs --------------------------------------------------------------
 

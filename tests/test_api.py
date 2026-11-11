@@ -264,6 +264,33 @@ def test_jobs_listing(client):
     assert isinstance(r.json()["jobs"], list)
 
 
+def test_chats_are_user_scoped(client):
+    """A chat saved by one user must be invisible to another."""
+    # fixture logged in as 'tester'; switch to a second account
+    client.post("/api/auth/logout")
+    r = client.post("/api/auth/register", json={"username": "bob", "password": "secret123"})
+    assert r.status_code == 201
+
+    r = client.put("/api/chats/chat-bob-1", json={"project_id": "default", "messages": [
+        {"role": "user", "content": "hello from bob"},
+    ]})
+    assert r.status_code == 200
+
+    # bob can read it
+    assert client.get("/api/chats/chat-bob-1").status_code == 200
+
+    # switch back to tester: bob's chat must 404 and not be listed
+    client.post("/api/auth/logout")
+    client.post("/api/auth/login", json={"username": "tester", "password": "secret123"})
+    assert client.get("/api/chats/chat-bob-1").status_code == 404
+    assert client.delete("/api/chats/chat-bob-1").status_code == 404
+    chats = client.get("/api/projects/default/chats").json()["chats"]
+    assert all(c["id"] != "chat-bob-1" for c in chats)
+
+    # tester deleting bob's chat removes nothing; bob's chat stays bob-only
+    assert client.get("/api/chats/chat-bob-1").status_code == 404
+
+
 def test_key_endpoints(client):
     r = client.get("/api/keys/openai")
     assert r.status_code == 200

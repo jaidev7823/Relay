@@ -27,7 +27,16 @@ export type ChatThread = {
   messages: ChatMessage[];
 };
 
-const key = (projectId: string, chatId: string) => `relevantr:chat:${projectId}:${chatId}`;
+// Local cache is keyed per user so two accounts in the same browser
+// never see each other's cached chats.
+let currentUserId = "anon";
+
+export function setCurrentUserId(userId: string) {
+  currentUserId = userId || "anon";
+}
+
+const key = (projectId: string, chatId: string) =>
+  `relevantr:chat:${currentUserId}:${projectId}:${chatId}`;
 
 function emptyChat(projectId: string, chatId: string): ChatThread {
   return { id: chatId, projectId, title: "New chat", createdAt: Date.now(), updatedAt: Date.now(), messages: [] };
@@ -57,8 +66,13 @@ export async function loadChat(projectId: string, chatId: string): Promise<ChatT
     const chat = fromApi(data, projectId, chatId);
     cacheChat(chat);
     return chat;
-  } catch {
-    // fallback to local cache
+  } catch (e: any) {
+    // 401/404: the backend has decided this chat is not ours. Do NOT fall
+    // back to the local cache — that could leak another account's chat.
+    if (e?.status === 401 || e?.status === 404) {
+      return emptyChat(projectId, chatId);
+    }
+    // Other errors (backend offline): fall back to the local cache.
   }
   if (typeof window !== "undefined") {
     try {
