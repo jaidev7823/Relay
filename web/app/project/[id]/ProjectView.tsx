@@ -109,7 +109,15 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+  onShowSources,
+  sourcesActive,
+}: {
+  message: ChatMessage;
+  onShowSources?: (id: string) => void;
+  sourcesActive?: boolean;
+}) {
   const isUser = message.role === "user";
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
@@ -140,17 +148,34 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           </div>
         )}
         {!isUser && message.sources && message.sources.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {message.sources.map((s, i) => (
-              <span
-                key={s.id}
-                className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
-              >
-                [{i + 1}] {s.file.replace(/\.pdf$/i, "")} · p.{s.page}
-              </span>
-            ))}
+          <div className="mt-3 border-t border-border/60 pt-2">
+            <div className="flex flex-wrap gap-1.5">
+              {message.sources.map((s, i) => (
+                <span
+                  key={s.id}
+                  className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+                >
+                  [{i + 1}] {s.file.replace(/\.pdf$/i, "")} · p.{s.page}
+                </span>
+              ))}
+            </div>
+            <button
+              onClick={() => onShowSources?.(message.id)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+                sourcesActive
+                  ? "bg-primary/10 text-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+              title="Show this answer's sources in the right sidebar"
+            >
+              <BookOpen className="size-3.5" />
+              {message.sources.length} {message.sources.length === 1 ? "source" : "sources"}
+              {sourcesActive && <span className="text-[10px] text-muted-foreground">· showing</span>}
+            </button>
           </div>
         )}
+
       </div>
     </div>
   );
@@ -179,6 +204,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
   const [input, setInput] = useState("");
   const [llmEnabled, setLlmEnabled] = useState(true);
   const [selected, setSelected] = useState<ChatSource | null>(null);
+  const [sourcesForId, setSourcesForId] = useState<string | null>(null);
 
   const [asking, setAsking] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -284,6 +310,26 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
 
   const latestAssistant = [...messages].reverse().find((m) => m.role === "assistant" && m.sources?.length);
   const latestSources = latestAssistant?.sources || [];
+  // Sources currently shown in the sidebar: the explicitly picked response,
+  // else the latest response with sources.
+  const pickedAssistant = sourcesForId
+    ? messages.find((m) => m.id === sourcesForId)
+    : undefined;
+  const visibleSources = pickedAssistant?.sources ?? latestSources;
+
+  // If the picked response disappears (e.g. messages cleared), fall back to latest.
+  useEffect(() => {
+    if (sourcesForId && !messages.some((m) => m.id === sourcesForId)) {
+      setSourcesForId(null);
+    }
+  }, [messages, sourcesForId]);
+
+  const showSources = (id: string) => {
+    setSourcesForId(id);
+    setRightTab("sources");
+    const msg = messages.find((m) => m.id === id);
+    if (msg?.sources?.length) setSelected(msg.sources[0]);
+  };
 
   useEffect(() => {
     if (!selected && latestSources.length) setSelected(latestSources[0]);
@@ -519,7 +565,14 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
                   <p className="max-w-sm text-xs">Each chat has its own URL. Answers include cited passages from the indexed PDFs.</p>
                 </div>
               )}
-              {messages.map((m) => <MessageBubble key={m.id} message={m} />)}
+              {messages.map((m) => (
+                <MessageBubble
+                  key={m.id}
+                  message={m}
+                  onShowSources={showSources}
+                  sourcesActive={sourcesForId === m.id || (!sourcesForId && m.id === latestAssistant?.id)}
+                />
+              ))}
               <div ref={bottomRef} />
             </div>
           </div>
@@ -557,15 +610,26 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
                 <TabsTrigger value="sources" className="px-3 py-1 text-xs">Sources</TabsTrigger>
                 <TabsTrigger value="page" className="px-3 py-1 text-xs">Page view</TabsTrigger>
               </TabsList>
-              <span className="text-[11px] text-muted-foreground">{latestSources.length ? "Latest" : "—"}</span>
+              <span className="text-[11px] text-muted-foreground">{visibleSources.length ? (sourcesForId ? "Picked" : "Latest") : "—"}</span>
             </div>
 
             <TabsContent value="sources" className="m-0 min-h-0 flex-1 overflow-y-auto p-2">
-              {latestSources.length ? (
+              {visibleSources.length ? (
                 <>
-                  <p className="px-1 pb-2 text-[11px] text-muted-foreground">{latestSources.length} passages · double-click to open page</p>
+                  <div className="flex items-center justify-between gap-2 px-1 pb-2">
+                    <p className="text-[11px] text-muted-foreground">{visibleSources.length} passages · double-click to open page</p>
+                    {sourcesForId && (
+                      <button
+                        onClick={() => setSourcesForId(null)}
+                        className="shrink-0 text-[10px] font-medium text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
+                        title="Back to the latest answer's sources"
+                      >
+                        Latest ↺
+                      </button>
+                    )}
+                  </div>
                   <div className="space-y-2">
-                    {latestSources.map((ref, i) => (
+                    {visibleSources.map((ref, i) => (
                       <button key={ref.id} onDoubleClick={() => openSource(ref)} onClick={() => setSelected(ref)}
                         className={cn("w-full rounded-lg border bg-background p-3 text-left transition-colors hover:border-foreground/20 hover:shadow-sm", selected?.id === ref.id && "border-primary/30 ring-1 ring-ring/30")}>
                         <div className="flex items-start justify-between gap-2">
