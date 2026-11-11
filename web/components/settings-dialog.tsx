@@ -179,7 +179,6 @@ export function SettingsDialog({
               <TabsList>
                 <TabsTrigger value="index"><Server className="mr-1.5 size-3.5" />Index & Retrieval</TabsTrigger>
                 <TabsTrigger value="llm"><PlugZap className="mr-1.5 size-3.5" />LLM</TabsTrigger>
-                <TabsTrigger value="keys"><KeyRound className="mr-1.5 size-3.5" />API Keys</TabsTrigger>
               </TabsList>
             </div>
 
@@ -215,6 +214,7 @@ export function SettingsDialog({
                   </div>
                   <Switch checked={!!cfg.llm_enabled} onCheckedChange={(v) => set("llm_enabled", v)} />
                 </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Provider">
                     <select
@@ -226,11 +226,50 @@ export function SettingsDialog({
                     </select>
                   </Field>
                   <Field label="Model">
-                    <div className="flex gap-2">
-                      <Input value={cfg.llm_model || ""} onChange={(e) => set("llm_model", e.target.value)} placeholder="model name" />
-                    </div>
+                    <Input value={cfg.llm_model || ""} onChange={(e) => set("llm_model", e.target.value)} placeholder="model name" />
                   </Field>
                 </div>
+
+                {(() => {
+                  const provider = cfg.llm_provider || "gwdg";
+                  const providerLabel = PROVIDERS.find((p) => p.id === provider)?.label || provider;
+                  const st = keyStatuses[provider];
+                  const needsKey = provider !== "ollama";
+                  return (
+                    <div className="rounded-lg border p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <KeyRound className="size-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">{providerLabel} API key</span>
+                          {st?.set ? <Badge variant="success">Set</Badge> : <Badge variant={needsKey ? "secondary" : "outline"}>{needsKey ? "Not set" : "Optional"}</Badge>}
+                        </div>
+                        {st?.set && <span className="max-w-[50%] truncate text-[11px] text-muted-foreground">{st.source}</span>}
+                      </div>
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        {needsKey
+                          ? `Used when "${providerLabel}" is selected. Stored server-side (keyring/env), never shown in the browser.`
+                          : "Ollama usually runs locally and may not require an API key."}
+                      </p>
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          value={keyInputs[provider] || ""}
+                          onChange={(e) => setKeyInputs((k) => ({ ...k, [provider]: e.target.value }))}
+                          placeholder={st?.set ? "Enter new key to replace…" : "Enter API key…"}
+                        />
+                        <Button size="sm" onClick={() => saveKey(provider)} disabled={keyBusy === provider || !keyInputs[provider]?.trim()}>
+                          <Save className="size-3.5" /> Save
+                        </Button>
+                        {st?.set && (
+                          <Button variant="outline" size="sm" onClick={() => removeKey(provider)} disabled={keyBusy === provider} title="Remove key">
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 <Field label="Base URL" hint="OpenAI-compatible endpoint.">
                   <Input value={cfg.llm_base_url || ""} onChange={(e) => set("llm_base_url", e.target.value)} placeholder="https://..." />
                 </Field>
@@ -263,39 +302,7 @@ export function SettingsDialog({
                 )}
               </TabsContent>
 
-              <TabsContent value="keys" className="m-0 space-y-3">
-                <p className="text-xs text-muted-foreground">Keys are stored server-side (keyring/env), never in the browser. Only masked status is shown.</p>
-                {PROVIDERS.map((p) => {
-                  const st = keyStatuses[p.id];
-                  return (
-                    <div key={p.id} className="rounded-lg border p-3">
-                      <div className="mb-2 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{p.label}</span>
-                          {st?.set ? <Badge variant="success">Set</Badge> : <Badge variant="secondary">Not set</Badge>}
-                        </div>
-                        {st?.set && <span className="max-w-[50%] truncate text-[11px] text-muted-foreground">{st.source}</span>}
-                      </div>
-                      <div className="flex gap-2">
-                        <Input
-                          type="password"
-                          value={keyInputs[p.id] || ""}
-                          onChange={(e) => setKeyInputs((k) => ({ ...k, [p.id]: e.target.value }))}
-                          placeholder={st?.set ? "Enter new key to replace…" : "Enter API key…"}
-                        />
-                        <Button size="sm" onClick={() => saveKey(p.id)} disabled={keyBusy === p.id || !keyInputs[p.id]?.trim()}>
-                          <Save className="size-3.5" /> Save
-                        </Button>
-                        {st?.set && (
-                          <Button variant="outline" size="sm" onClick={() => removeKey(p.id)} disabled={keyBusy === p.id}>
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </TabsContent>
+             
             </div>
           </Tabs>
         )}
