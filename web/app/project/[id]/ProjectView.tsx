@@ -38,6 +38,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { ChatSessionsMenu } from "@/components/chat-sessions";
 import { UserMenu } from "@/components/user-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { api, type Doc, type IndexInfo, type Job } from "@/lib/api";
@@ -483,7 +484,10 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="flex h-11 shrink-0 items-center justify-between border-b px-4 text-xs text-muted-foreground">
             <span className="truncate">Chat: <span className="font-mono">{chatId.slice(0, 8)}</span></span>
-            <button onClick={newChat} className="flex items-center gap-1 hover:text-foreground"><MessageSquarePlus className="size-3.5" /> New chat</button>
+            <div className="flex items-center gap-2">
+              <ChatSessionsMenu projectId={projectId} chatId={chatId} />
+              <button onClick={newChat} className="flex items-center gap-1 hover:text-foreground"><MessageSquarePlus className="size-3.5" /> New chat</button>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto">
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4 sm:p-6">
