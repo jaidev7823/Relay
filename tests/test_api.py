@@ -29,6 +29,12 @@ def client(tmp_path, monkeypatch):
 
     import server.deps as deps
 
+    # Never touch the real ~/.config/Relevantr/config.json from tests:
+    # the API saves config on PUT /config and after queries.
+    import relevantr.config as core_config
+
+    monkeypatch.setattr(core_config, "config_file_path", lambda: tmp_path / "config.json")
+
     monkeypatch.setattr(deps, "get_settings", lambda: settings)
 
     # 2. Fresh State against those settings.
@@ -108,6 +114,9 @@ def test_api_requires_auth(tmp_path, monkeypatch):
     )
     import server.deps as deps
 
+    import relevantr.config as core_config
+
+    monkeypatch.setattr(core_config, "config_file_path", lambda: tmp_path / "config.json")
     monkeypatch.setattr(deps, "get_settings", lambda: settings)
     deps._state = None
     from server.app.main import app
