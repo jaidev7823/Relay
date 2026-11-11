@@ -40,7 +40,8 @@ def build_prompt(question: str, passages: list[Passage]) -> str:
     """The strict source-attribution prompt from Relevantr v1."""
     context, sources = build_context(passages)
     return f"""
-You are an AI assistant specialized in scientific document analysis. Your task is to answer the user's question STRICTLY by referencing the provided document excerpts.
+You are an AI assistant specialized in scientific document analysis. 
+Your task is to answer the user's question STRICTLY by referencing the provided document excerpts.
 
 **CRITICAL INSTRUCTIONS:**
 1. For EVERY piece of information you provide, you MUST identify its source
@@ -48,11 +49,11 @@ You are an AI assistant specialized in scientific document analysis. Your task i
 3. Include direct quotes or very close paraphrases from the source material
 4. If information is not present in the provided context, clearly state that
 
-**Desired Format:**
-Start with a brief overview, then for each specific point:
-- State the source: "According to [filename] (Page: X)..."
-- Include the relevant information: "The document states: '[quote or paraphrase]'"
-- Continue with additional sources as needed
+Requirements:
+- Be super concise and direct. Zero fluff, zero conversational filler, and no repetitive phrases like "According to the document" or "Based on the provided excerpts".
+- High technical detail: Include the exact product code, ordering code, specifications (ratings, poles, contacts, compatibility), list price (INR), and page source.
+- Natural structure: Format cleanly in whatever way best fits the data (clean bullets, short text, or line items), but keep it dense and immediately scannable.
+- If not present in the excerpts, say so directly in one sentence and state what related ranges exist.
 
 **Context Information:**
 {context}
