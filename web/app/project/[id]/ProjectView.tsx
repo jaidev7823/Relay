@@ -14,7 +14,6 @@ const PdfPageViewer = dynamic(
 import {
   BookOpen,
   ChevronLeft,
-  ChevronRight,
   CircleAlert,
   CircleCheck,
   CircleDashed,
@@ -183,7 +182,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
   const [input, setInput] = useState("");
   const [llmEnabled, setLlmEnabled] = useState(true);
   const [selected, setSelected] = useState<ChatSource | null>(null);
-  const [viewPage, setViewPage] = useState<number>(1);
+
   const [asking, setAsking] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -295,13 +294,8 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
 
   const openSource = (ref: ChatSource) => {
     setSelected(ref);
-    setViewPage(ref.page);
     setRightTab("page");
   };
-
-  useEffect(() => {
-    if (selected) setViewPage(selected.page);
-  }, [selected?.id]);
 
   const runJob = async (kind: "build" | "update" | "rebuild") => {
     setBusy(kind);
@@ -601,34 +595,14 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
             <TabsContent value="page" className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden">
               {selected ? (
                 <>
-                  <div className="border-b bg-background/50 p-3">
+                  <div className="border-b bg-background/50 px-3 py-2">
                     <p className="truncate text-sm font-medium">{selected.file}</p>
                     <p className="text-xs text-muted-foreground">
-                      Cited page {selected.page} · viewing page {viewPage} · relevance {(selected.score * 100).toFixed(0)}%
+                      Cited page {selected.page} · relevance {(selected.score * 100).toFixed(0)}%
                     </p>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-3">
-                    <div className="mb-3 rounded-lg border bg-amber-500/5 p-3">
-                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Retrieved passage</p>
-                      <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/90">{selected.snippet}</p>
-                    </div>
-                    <div className="rounded-lg border bg-card p-2">
-                      <PdfPageViewer fileName={selected.file} pageNumber={viewPage} projectId={projectId} />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between border-t bg-background/50 p-2">
-                    <Button variant="outline" size="sm" onClick={() => setViewPage((p) => Math.max(1, p - 1))} disabled={viewPage <= 1}>
-                      <ChevronLeft className="size-3.5" /> Prev
-                    </Button>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-muted-foreground">Page {viewPage}</span>
-                      {viewPage !== selected.page && (
-                        <Button variant="ghost" size="xs" onClick={() => setViewPage(selected.page)}>Go to cited</Button>
-                      )}
-                    </div>
-                    <Button variant="outline" size="sm" onClick={() => setViewPage((p) => p + 1)}>
-                      Next <ChevronRight className="size-3.5" />
-                    </Button>
+                  <div className="min-h-0 flex-1">
+                    <PdfPageViewer fileName={selected.file} pageNumber={selected.page} projectId={projectId} />
                   </div>
                 </>
               ) : (
