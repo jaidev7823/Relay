@@ -303,16 +303,16 @@ def test_chats_are_user_scoped(client):
     # bob can read it
     assert client.get("/api/chats/chat-bob-1").status_code == 200
 
-    # switch back to tester: bob's chat must 404 and not be listed
+    # switch back to tester: bob's chat must 403 and not be listed
     client.post("/api/auth/logout")
     client.post("/api/auth/login", json={"username": "tester", "password": "secret123"})
-    assert client.get("/api/chats/chat-bob-1").status_code == 404
-    assert client.delete("/api/chats/chat-bob-1").status_code == 404
+    assert client.get("/api/chats/chat-bob-1").status_code == 403
+    assert client.delete("/api/chats/chat-bob-1").status_code == 403
     chats = client.get(f"/api/projects/{project_id}/chats").json()["chats"]
     assert all(c["id"] != "chat-bob-1" for c in chats)
 
     # tester deleting bob's chat removes nothing; bob's chat stays bob-only
-    assert client.get("/api/chats/chat-bob-1").status_code == 404
+    assert client.get("/api/chats/chat-bob-1").status_code == 403
 
 
 def test_key_endpoints(client):

@@ -90,10 +90,14 @@ export async function loadChat(projectId: string, chatId: string): Promise<ChatT
     cacheChat(chat);
     return chat;
   } catch (e: any) {
-    // 401/404: the backend has decided this chat is not ours. Do NOT fall
+    // 403: the chat exists but belongs to another account. Do NOT fall
     // back to the local cache — that could leak another account's chat.
-    if (e?.status === 401 || e?.status === 404) {
+    // (404 = simply not found, e.g. a brand-new chat; that's fine.)
+    if (e?.status === 403) {
       return { ...emptyChat(projectId, chatId), notFound: true };
+    }
+    if (e?.status === 404) {
+      return emptyChat(projectId, chatId); // unknown/deleted chat: fresh start
     }
     // Other errors (backend offline): fall back to the local cache.
   }
