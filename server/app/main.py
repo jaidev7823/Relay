@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from relevantr import __version__ as core_version, pipeline
-from relevantr.config import LLM_PRESETS, resolve_api_key, store_api_key
+from relevantr.config import LLM_PRESETS
 from relevantr.llm import LLMClient, LLMError
 from relevantr.store import StoreError
 
@@ -51,7 +51,7 @@ from ..schemas import (
     QueryOut,
     StartJobIn,
 )
-from . import keys, llm
+from . import llm
 from .auth import current_user, require_user, router as auth_router
 
 logger = logging.getLogger(__name__)
@@ -136,15 +136,10 @@ def _qdrant_status(st: State) -> str:
 
 # --------------------------------------------------------------------- config
 
-_SAFE_CONFIG_FIELDS = (
-    "pdf_dir", "chunk_size", "chunk_overlap", "retrieve_k", "final_n",
-    "use_reranker", "llm_enabled", "llm_provider", "llm_base_url", "llm_model",
-)
 
-
-@app.get("/api/config", response_model=ConfigOut, tags=["system"])
-def get_config(st: State = Depends(state)) -> ConfigOut:
-    c = st.config
+def _config_out(st: State, user_id: str) -> ConfigOut:
+    """Global operator config + the user's own per-field overrides."""
+    c = st.user_config(user_id)
     return ConfigOut(
         pdf_dir=c.pdf_dir,
         db_dir=c.db_dir,
@@ -164,20 +159,26 @@ def get_config(st: State = Depends(state)) -> ConfigOut:
     )
 
 
+@app.get("/api/config", response_model=ConfigOut, tags=["system"])
+def get_config(user: dict = Depends(require_user), st: State = Depends(state)) -> ConfigOut:
+    return _config_out(st, user["id"])
+
+
 @app.put("/api/config", response_model=ConfigOut, tags=["system"])
-def put_config(body: ConfigIn, st: State = Depends(state)) -> ConfigOut:
+def put_config(body: ConfigIn, user: dict = Depends(require_user),
+               st: State = Depends(state)) -> ConfigOut:
+    from ..user_settings import USER_FIELDS
+
     updates = body.model_dump(exclude_unset=True, exclude_none=True)
-    changed_backend = any(
-        f in updates for f in ("chunk_size", "chunk_overlap")
-    )
-    for field, value in updates.items():
-        if field not in _SAFE_CONFIG_FIELDS:
-            raise HTTPException(400, f"field '{field}' is not settable here")
-        setattr(st.config, field, value)
-    st.config.save()
-    if changed_backend:
-        st.invalidate_models()
-    return get_config(st)
+    refused = sorted(f for f in updates if f not in USER_FIELDS)
+    if refused:
+        raise HTTPException(
+            400,
+            f"{', '.join(refused)} — server-managed fields are not writable via the API",
+        )
+    if updates:
+        st.user_patch_settings(user["id"], updates)
+    return _config_out(st, user["id"])
 
 
 # --------------------------------------------------------------------- index
@@ -337,15 +338,17 @@ async def query(body: QueryIn, user: dict = Depends(require_user),
     """Hybrid retrieval (+ optional LLM answer). Runs in a worker thread
     because embedding and reranking are CPU-bound."""
     import anyio
-    import copy
+    import dataclasses
 
+    # Per-user overlay on the operator config; never persisted back.
+    config = st.user_config(user["id"])
     if body.project_id:
         project = _require_project(st, user, body.project_id)
-        config = st.project_config(project)
-        persist = False
-    else:
-        config = st.config
-        persist = True
+        config = dataclasses.replace(
+            config,
+            pdf_dir=project["pdf_dir"],
+            qdrant_collection=project["qdrant_collection"],
+        )
 
     if body.use_llm is not None:
         config.llm_enabled = body.use_llm  # request-level override only
@@ -355,7 +358,7 @@ async def query(body: QueryIn, user: dict = Depends(require_user),
         config.final_n = body.final_n
 
     def work():
-        return _run_query(config, body.question)
+        return _run_query(config, body.question, user["id"])
 
     try:
         passages, answer = await anyio.to_thread.run_sync(work)
@@ -363,9 +366,6 @@ async def query(body: QueryIn, user: dict = Depends(require_user),
         raise HTTPException(409, str(exc))
     except LLMError as exc:
         raise HTTPException(502, f"LLM request failed: {exc}")
-    finally:
-        if persist:
-            config.save()  # persist any overrides (global config only)
 
     mode = "llm answer" if answer else "retrieval only"
     return QueryOut(
@@ -379,7 +379,7 @@ async def query(body: QueryIn, user: dict = Depends(require_user),
     )
 
 
-def _run_query(config, question: str):
+def _run_query(config, question: str, user_id: str | None = None):
     from relevantr.rerank import Passage
 
     from ..deps import get_state
@@ -390,7 +390,11 @@ def _run_query(config, question: str):
                                     reranker=reranker)
     answer = None
     if config.llm_enabled and passages:
-        client = LLMClient.from_config(config)
+        if user_id:
+            api_key, key_source = st.api_key_resolve(user_id, config.llm_provider)
+            client = LLMClient.from_config(config, api_key=api_key, key_source=key_source)
+        else:
+            client = LLMClient.from_config(config)
         answer = client.answer(question, passages)
     return passages, answer
 
@@ -583,13 +587,19 @@ def document_page(name: str, project_id: str | None = None, page: int = 1,
 def export(question: str = "", project_id: str | None = None,
            user: dict = Depends(require_user), st: State = Depends(state)) -> ExportOut:
     """Re-run the last question (or the given one) and export Markdown."""
+    import dataclasses
+
     if not question:
         raise HTTPException(400, "question query parameter is required")
-    config = st.config
+    config = st.user_config(user["id"])
     if project_id:
         project = _require_project(st, user, project_id)
-        config = st.project_config(project)
-    passages, _ = _run_query(config, question)
+        config = dataclasses.replace(
+            config,
+            pdf_dir=project["pdf_dir"],
+            qdrant_collection=project["qdrant_collection"],
+        )
+    passages, _ = _run_query(config, question, user["id"])
     lines = [
         f"# Relevantr export",
         "",
@@ -614,15 +624,18 @@ def export(question: str = "", project_id: str | None = None,
 
 
 @app.post("/api/llm/test", response_model=LlmTestOut, tags=["llm"])
-def llm_test(st: State = Depends(state)) -> LlmTestOut:
-    ok, message = llm.test_connection(st.config)
+def llm_test(user: dict = Depends(require_user), st: State = Depends(state)) -> LlmTestOut:
+    try:
+        ok, message = llm.test_connection(st.user_config(user["id"]), user["id"])
+    except LLMError as exc:
+        return LlmTestOut(ok=False, message=str(exc))
     return LlmTestOut(ok=ok, message=message)
 
 
 @app.get("/api/llm/models", response_model=LlmModelsOut, tags=["llm"])
-def llm_models(st: State = Depends(state)) -> LlmModelsOut:
+def llm_models(user: dict = Depends(require_user), st: State = Depends(state)) -> LlmModelsOut:
     try:
-        models = llm.list_models(st.config)
+        models = llm.list_models(st.user_config(user["id"]), user["id"])
     except LLMError as exc:
         raise HTTPException(502, str(exc))
     return LlmModelsOut(models=models)
@@ -632,30 +645,30 @@ def llm_models(st: State = Depends(state)) -> LlmModelsOut:
 
 
 @app.get("/api/keys/{provider}", response_model=KeyStatusOut, tags=["keys"])
-def key_status(provider: str, st: State = Depends(state)) -> KeyStatusOut:
+def key_status(provider: str, user: dict = Depends(require_user),
+               st: State = Depends(state)) -> KeyStatusOut:
     if provider not in LLM_PRESETS and provider != "gwdg":
         raise HTTPException(404, f"unknown provider '{provider}'")
-    key, source = resolve_api_key(provider)
-    return KeyStatusOut(provider=provider, set=key is not None, source=source)
+    ok, source = st.api_key_status(user["id"], provider)
+    return KeyStatusOut(provider=provider, set=ok, source=source)
 
 
 @app.put("/api/keys/{provider}", response_model=KeyStatusOut, tags=["keys"])
-def set_key(provider: str, body: KeyIn,
+def set_key(provider: str, body: KeyIn, user: dict = Depends(require_user),
             st: State = Depends(state)) -> KeyStatusOut:
     if provider not in LLM_PRESETS and provider != "gwdg":
         raise HTTPException(404, f"unknown provider '{provider}'")
-    note = store_api_key(provider, body.key)
-    return KeyStatusOut(provider=provider, set=True, source=note)
+    st.api_key_set(user["id"], provider, body.key)
+    ok, source = st.api_key_status(user["id"], provider)
+    return KeyStatusOut(provider=provider, set=ok, source=source)
 
 
 @app.delete("/api/keys/{provider}", response_model=KeyStatusOut, tags=["keys"])
-def delete_key(provider: str,
-              st: State = Depends(state)) -> KeyStatusOut:
-    from relevantr.config import delete_api_key
-
+def delete_key(provider: str, user: dict = Depends(require_user),
+               st: State = Depends(state)) -> KeyStatusOut:
     if provider not in LLM_PRESETS and provider != "gwdg":
         raise HTTPException(404, f"unknown provider '{provider}'")
-    delete_api_key(provider)
+    st.api_key_delete(user["id"], provider)
     return KeyStatusOut(provider=provider, set=False, source="removed")
 
 
@@ -669,8 +682,9 @@ def delete_key(provider: str,
     responses={200: {"content": {"text/markdown": {}},
                      "description": "Markdown file download"}},
 )
-def export_md(question: str = "", st: State = Depends(state)) -> Response:
-    result = export(question=question, st=st)
+def export_md(question: str = "", user: dict = Depends(require_user),
+              st: State = Depends(state)) -> Response:
+    result = export(question=question, user=user, st=st)
     return Response(
         content=result.content,
         media_type="text/markdown",

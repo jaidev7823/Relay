@@ -168,9 +168,20 @@ def test_config_roundtrip(client):
     assert cfg["vector_backend"] == "qdrant"
     assert cfg["embedding_backend"] == "local"
 
-    r = client.put("/api/config", json={"chunk_size": 512, "use_reranker": False})
+    # per-user LLM/retrieval fields are settable; operator fields are not
+    r = client.put("/api/config", json={"llm_model": "some-model-x", "retrieve_k": 17})
     assert r.status_code == 200
-    assert r.json()["chunk_size"] == 512
+    assert r.json()["llm_model"] == "some-model-x"
+    assert r.json()["retrieve_k"] == 17
+
+    r = client.put("/api/config", json={"final_n": 3})
+    assert r.json()["final_n"] == 3
+
+    # chunking is operator-managed now
+    r = client.put("/api/config", json={"chunk_size": 512})
+    assert r.status_code == 400
+    r = client.put("/api/config", json={"pdf_dir": "/tmp/x"})
+    assert r.status_code == 400
 
     # read-only field must be rejected
     r = client.put("/api/config", json={"vector_backend": "lance"})
@@ -384,3 +395,42 @@ def test_document_page_render(client):
     assert client.get("/api/documents/page?name=one.pdf&page=99").status_code == 404
     assert client.get("/api/documents/page?name=../jobs.db&page=1").status_code == 400
     assert client.get("/api/documents/page?name=missing.pdf&page=1").status_code == 404
+
+
+def test_user_settings_are_per_user(client):
+    """Overrides of one user must not leak into another's config."""
+    r = client.put("/api/config", json={"llm_provider": "openai", "retrieve_k": 99})
+    assert r.status_code == 200
+
+    client.post("/api/auth/logout")
+    client.post("/api/auth/register", json={"username": "carol", "password": "secret123"})
+    cfg = client.get("/api/config").json()
+    assert cfg["llm_provider"] != "openai" or cfg["retrieve_k"] != 99
+
+    client.post("/api/auth/logout")
+    client.post("/api/auth/login", json={"username": "tester", "password": "secret123"})
+    assert client.get("/api/config").json()["retrieve_k"] == 99
+
+
+def test_user_keys_are_per_user_and_encrypted(client):
+    """Keys set by one user are invisible/unusable by another; the DB holds
+    ciphertext, not plaintext."""
+    r = client.put("/api/keys/openai", json={"key": "sk-alice-secret-123"})
+    assert r.status_code == 200
+    assert r.json()["set"] is True
+
+    client.post("/api/auth/logout")
+    client.post("/api/auth/register", json={"username": "mallory", "password": "secret123"})
+    assert client.get("/api/keys/openai").json()["set"] is False
+    assert client.put("/api/keys/openai", json={"key": "sk-mallory"}).json()["set"] is True
+
+    client.post("/api/auth/logout")
+    client.post("/api/auth/login", json={"username": "tester", "password": "secret123"})
+    assert client.get("/api/keys/openai").json()["set"] is True
+
+    # plaintext must not appear in the DB file bytes
+    import server.deps as deps
+
+    db_path = deps.get_settings().data_dir / "jobs.db"
+    assert b"sk-alice-secret-123" not in db_path.read_bytes()
+    assert b"sk-alice-secret" not in db_path.read_bytes()

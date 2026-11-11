@@ -83,9 +83,6 @@ export function SettingsDialog({
     setMsg(null);
     try {
       const body = {
-        pdf_dir: cfg.pdf_dir,
-        chunk_size: Number(cfg.chunk_size),
-        chunk_overlap: Number(cfg.chunk_overlap),
         retrieve_k: Number(cfg.retrieve_k),
         final_n: Number(cfg.final_n),
         use_reranker: !!cfg.use_reranker,
@@ -189,8 +186,8 @@ export function SettingsDialog({
                   <Input value={cfg.pdf_dir || ""} onChange={(e) => set("pdf_dir", e.target.value)} placeholder="/path/to/papers" />
                 </Field>
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Chunk size" hint="Tokens per chunk."><Input type="number" value={cfg.chunk_size} onChange={(e) => set("chunk_size", e.target.value)} /></Field>
-                  <Field label="Chunk overlap"><Input type="number" value={cfg.chunk_overlap} onChange={(e) => set("chunk_overlap", e.target.value)} /></Field>
+                  <Field label="Chunk size" hint="Managed on the server."><Input type="number" value={cfg.chunk_size} disabled /></Field>
+                  <Field label="Chunk overlap" hint="Managed on the server."><Input type="number" value={cfg.chunk_overlap} disabled /></Field>
                   <Field label="Retrieve k" hint="Candidates before rerank."><Input type="number" value={cfg.retrieve_k} onChange={(e) => set("retrieve_k", e.target.value)} /></Field>
                   <Field label="Final n" hint="Passages sent to LLM."><Input type="number" value={cfg.final_n} onChange={(e) => set("final_n", e.target.value)} /></Field>
                 </div>

@@ -70,6 +70,12 @@ class LLMError(Exception):
     """User-facing LLM/provider error."""
 
 
+# Sentinel: the caller did not pass an explicit key -> resolve the default
+# way (env vars / keyring), so desktop behavior is unchanged. Passing an
+# explicit ``api_key=None`` means "no key" (only OK for keyless providers).
+_USE_RESOLVER = object()
+
+
 class LLMClient:
     def __init__(self, base_url: str, api_key: str | None, model: str, client=None):
         self.base_url = base_url.rstrip("/")
@@ -84,16 +90,19 @@ class LLMClient:
             self._client = OpenAI(base_url=self.base_url, api_key=api_key or "none")
 
     @classmethod
-    def from_config(cls, config: AppConfig, client=None) -> "LLMClient":
+    def from_config(cls, config: AppConfig, client=None, api_key=_USE_RESOLVER,
+                    key_source: str = "provided") -> "LLMClient":
         preset = LLM_PRESETS.get(config.llm_provider)
-        api_key, source = resolve_api_key(config.llm_provider)
+        if api_key is _USE_RESOLVER:
+            # Desktop path: env var > keyring > session memory.
+            api_key, key_source = resolve_api_key(config.llm_provider)
         if api_key is None and preset is not None and preset.needs_key:
             raise LLMError(
                 f"No API key found for provider '{preset.label}'. Enter one in "
                 f"Settings, or set the {preset.env_var} (or RELEVANTR_API_KEY) "
                 "environment variable."
             )
-        logger.info("LLM provider %s, key from %s", config.llm_provider, source)
+        logger.info("LLM provider %s, key from %s", config.llm_provider, key_source)
         return cls(
             base_url=config.llm_base_url,
             api_key=api_key,

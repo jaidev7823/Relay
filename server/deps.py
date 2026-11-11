@@ -18,7 +18,9 @@ from relevantr.store import VectorStore, get_store
 
 from . import chats as chats_db
 from . import jobs as jobs_db
+from . import keys_db
 from . import projects as projects_db
+from . import user_settings as user_settings_db
 from . import users as users_db
 from .ingest_jobs import JobRunner
 from .settings import get_settings
@@ -88,6 +90,53 @@ class State:
 
     # -- projects ----------------------------------------------------------
 
+    def user_config(self, user_id: str) -> AppConfig:
+        """Global config + the user's per-field overrides. Never persisted."""
+        import dataclasses
+
+        overlay = user_settings_db.get(self.jobs_db_path, user_id)
+        return dataclasses.replace(self.config, **overlay)
+
+    def user_patch_settings(self, user_id: str, updates: dict) -> dict:
+        return user_settings_db.patch(self.jobs_db_path, user_id, updates)
+
+    # -- per-user API keys --------------------------------------------------
+
+    def api_key_set(self, user_id: str, provider: str, plaintext: str) -> None:
+        keys_db.set_key(self.jobs_db_path, self.settings.data_dir, user_id, provider, plaintext)
+
+    def api_key_status(self, user_id: str, provider: str) -> tuple[bool, str]:
+        import os
+
+        from relevantr.config import GENERIC_KEY_ENV_VAR, LLM_PRESETS
+
+        preset = LLM_PRESETS.get(provider)
+        for var in ([preset.env_var] if preset else []) + [GENERIC_KEY_ENV_VAR]:
+            if os.environ.get(var):
+                return True, f"environment variable {var} (server-wide)"
+        if keys_db.has_key(self.jobs_db_path, user_id, provider):
+            return True, "stored in this account"
+        return False, "not set"
+
+    def api_key_resolve(self, user_id: str, provider: str) -> tuple[str | None, str]:
+        """Effective key for a provider call: env override > per-user store."""
+        import os
+
+        from relevantr.config import GENERIC_KEY_ENV_VAR, LLM_PRESETS
+
+        preset = LLM_PRESETS.get(provider)
+        for var in ([preset.env_var] if preset else []) + [GENERIC_KEY_ENV_VAR]:
+            value = os.environ.get(var)
+            if value:
+                return value, f"environment variable {var}"
+        value = keys_db.get_key(self.jobs_db_path, self.settings.data_dir, user_id, provider)
+        if value is not None:
+            return value, "stored in this account"
+        return None, "not set"
+
+    def api_key_delete(self, user_id: str, provider: str) -> None:
+        keys_db.delete_key(self.jobs_db_path, user_id, provider)
+
     def project_config(self, project: dict) -> AppConfig:
         """A copy of the global config pointed at the project's sources
         and its own Qdrant collection. Never persisted."""
@@ -145,6 +194,8 @@ class State:
         chats_db.init_db(self.jobs_db_path)
         users_db.init_db(self.jobs_db_path)
         projects_db.init_db(self.jobs_db_path)
+        keys_db.init_db(self.jobs_db_path)
+        user_settings_db.init_db(self.jobs_db_path)
         users_db.purge_expired_sessions(self.jobs_db_path)
         # Pre-auth chats belong to the first registered user, not to everyone.
         first = users_db.first_user(self.jobs_db_path)
