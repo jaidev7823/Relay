@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Check, KeyRound, LoaderCircle, PlugZap, Save, Server, Trash2, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -217,13 +218,20 @@ export function SettingsDialog({
 
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Provider">
-                    <select
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                    <Select
+                      items={PROVIDERS.map((p) => ({ label: p.label, value: p.id }))}
                       value={cfg.llm_provider || "gwdg"}
-                      onChange={(e) => set("llm_provider", e.target.value)}
+                      onValueChange={(v: string | null) => v != null && set("llm_provider", v)}
                     >
-                      {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-                    </select>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select provider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PROVIDERS.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </Field>
                   <Field label="Model">
                     <Input value={cfg.llm_model || ""} onChange={(e) => set("llm_model", e.target.value)} placeholder="model name" />
