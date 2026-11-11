@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS chats (
     updated_at  REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chats_project ON chats (project_id, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_chats_user ON chats (user_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS messages (
     id          TEXT PRIMARY KEY,
@@ -59,7 +58,9 @@ def init_db(db_path: Path) -> None:
             cols = {r["name"] for r in conn.execute("PRAGMA table_info(chats)").fetchall()}
             if "user_id" not in cols:
                 conn.execute("ALTER TABLE chats ADD COLUMN user_id TEXT")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_user ON chats (user_id, updated_at DESC)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chats_user ON chats (user_id, updated_at DESC)"
+            )
             conn.commit()
         finally:
             conn.close()
