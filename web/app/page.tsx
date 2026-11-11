@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ThemeToggle } from "@/components/theme-toggle";
 import { api, type IndexInfo } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
+import { UserMenu } from "@/components/user-menu";
 import { cn } from "@/lib/utils";
 
 function makeChatHref() {
@@ -19,7 +20,7 @@ function makeChatHref() {
 }
 
 export default function Home() {
-  const { ready: authReady } = useRequireAuth();
+  const { user, ready: authReady } = useRequireAuth();
   const [info, setInfo] = useState<IndexInfo | null>(null);
   const [config, setConfig] = useState<any>(null);
   const [status, setStatus] = useState<"loading" | "ok" | "no-index" | "offline">("loading");
@@ -64,6 +65,7 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-2">
           <ThemeToggle />
+          {user && <UserMenu user={user} />}
           <Link href={newChatHref} className={cn(buttonVariants())}>
             <Plus className="size-4" />
             New chat

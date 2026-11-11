@@ -29,7 +29,6 @@ import {
   Send,
   Settings2,
   Sparkles,
-  LogOut,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -39,6 +38,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { UserMenu } from "@/components/user-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { api, type Doc, type IndexInfo, type Job } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
@@ -381,11 +381,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
             <Switch checked={llmEnabled} onCheckedChange={setLlmEnabled} />
           </label>
           <ThemeToggle />
-          {user && (
-            <Button variant="ghost" size="sm" title="Log out" onClick={async () => { await api.logout().catch(() => {}); router.replace("/login"); }}>
-              <LogOut className="size-3.5" /> {user.username}
-            </Button>
-          )}
+          {user && <UserMenu user={user} />}
           <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
             <Settings2 className="size-3.5" /> Settings
           </Button>
