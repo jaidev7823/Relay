@@ -1,22 +1,22 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, Ellipsis, MessageSquarePlus, Pencil, Plus, Trash2 } from "lucide-react";
+import { BookOpen, Ellipsis, FolderOpen, LoaderCircle, Pencil, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { api } from "@/lib/api";
+import { api, type Project } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { UserMenu } from "@/components/user-menu";
 import { cn } from "@/lib/utils";
 
-function makeChatHref() {
-  const id = typeof crypto !== "undefined" && "randomUUID" in crypto
+function makeChatId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2);
-  return `/project/default/chat/${id}`;
 }
 
 function timeAgo(epochSeconds: number) {
@@ -86,49 +86,62 @@ function CardMenu({
 }
 
 export default function Home() {
+  const router = useRouter();
   const { user, ready: authReady } = useRequireAuth();
-  const [status, setStatus] = useState<"loading" | "ok" | "no-index" | "offline">("loading");
-  const [newChatHref, setNewChatHref] = useState("/project/default/chat/new");
-  const [sessions, setSessions] = useState<{ id: string; title: string; updated_at: number }[]>([]);
+  const [status, setStatus] = useState<"loading" | "ok" | "offline">("loading");
+  const [projects, setProjects] = useState<Project[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const [adding, setAdding] = useState<string | null>(null); // upload progress text
 
-  const loadSessions = useCallback(async () => {
+  const loadProjects = useCallback(async () => {
     if (!authReady) return;
     try {
-      const res = await api.listChats("default");
-      setSessions(res.chats || []);
+      const res = await api.projects();
+      setProjects(res.projects || []);
     } catch {}
   }, [authReady]);
 
   useEffect(() => {
-    loadSessions();
-  }, [loadSessions]);
+    loadProjects();
+  }, [loadProjects]);
 
-  const deleteSession = async (id: string) => {
+  const deleteProject = async (id: string) => {
     setDeletingId(id);
     try {
-      await api.deleteChat(id);
-      setSessions((s) => s.filter((c) => c.id !== id));
+      await api.deleteProject(id);
+      setProjects((p) => p.filter((x) => x.id !== id));
     } catch {}
     setDeletingId(null);
   };
 
-  useEffect(() => {
-    setNewChatHref(makeChatHref());
-  }, []);
+  const addSources = async (fileList: FileList | null) => {
+    const files = Array.from(fileList || []).filter((f) => f.name.toLowerCase().endsWith(".pdf"));
+    if (!files.length) { setAdding(null); return; }
+    setAdding("Creating library…");
+    try {
+      // Derive a name from the folder picked, else the first file.
+      const rel = (files[0] as File & { webkitRelativePath?: string }).webkitRelativePath || "";
+      const folderName = rel.includes("/") ? rel.split("/")[0] : files[0].name.replace(/\.pdf$/i, "");
+      const project = await api.createProject(folderName);
+      setAdding("Uploading " + files.length + " file" + (files.length === 1 ? "" : "s") + "…");
+      await api.uploadFiles(project.id, files);
+      router.push(`/project/${project.id}/chat/${makeChatId()}`);
+    } catch (e: any) {
+      setAdding(null);
+      alert(e?.message || "Failed to add sources");
+      loadProjects();
+    }
+  };
 
   useEffect(() => {
     (async () => {
       try {
-        await api.indexInfo();
+        await api.health();
         setStatus("ok");
       } catch {
-        try {
-          await api.health();
-          setStatus("no-index");
-        } catch {
-          setStatus("offline");
-        }
+        setStatus("offline");
       }
     })();
   }, []);
@@ -148,65 +161,107 @@ export default function Home() {
         <div className="flex items-center gap-2">
           <ThemeToggle />
           {user && <UserMenu user={user} />}
-          <Link href={newChatHref} className={cn(buttonVariants())}>
+          <button onClick={() => fileInputRef.current?.click()} className={cn(buttonVariants())}>
             <Plus className="size-4" />
-            New chat
-          </Link>
+            Add sources
+          </button>
         </div>
       </header>
 
       <main className="mx-auto w-full max-w-6xl px-6 pb-16">
         <div className="mb-8 flex items-end justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Projects</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">Libraries</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Each chat has a unique URL. Open the library to index papers and ask questions.
+              Pick a folder or files — they get embedded and you get a chat with its own URL.
             </p>
           </div>
           {status === "ok" && <Badge variant="success">Backend connected</Badge>}
-          {status === "no-index" && <Badge variant="warning">No index yet</Badge>}
           {status === "offline" && <Badge variant="danger">Backend offline</Badge>}
           {status === "loading" && <Badge variant="secondary">Connecting…</Badge>}
         </div>
 
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".pdf,application/pdf"
+          className="hidden"
+          onChange={(e) => { addSources(e.target.files); e.target.value = ""; }}
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          {...{ webkitdirectory: "", directory: "" }}
+          onChange={(e) => { addSources(e.target.files); e.target.value = ""; }}
+        />
+
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Link href={newChatHref} className="group">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="group text-left"
+            disabled={adding !== null}
+          >
             <Card className="flex h-full min-h-[220px] flex-col items-center justify-center border-dashed bg-transparent text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-card hover:text-foreground">
               <div className="flex size-11 items-center justify-center rounded-full border bg-background shadow-sm transition-transform group-hover:scale-105">
                 <Plus className="size-5" />
               </div>
-              <p className="mt-3 font-medium text-foreground">New chat</p>
-              <p className="mt-1 max-w-[220px] text-center text-sm">
-                Start a new conversation in the library (gets a unique URL).
-              </p>
+              {adding ? (
+                <>
+                  <p className="mt-3 flex items-center gap-2 font-medium text-foreground">
+                    <LoaderCircle className="size-4 animate-spin" /> {adding}
+                  </p>
+                  <p className="mt-1 max-w-[220px] text-center text-sm">Hold tight — embedding starts automatically.</p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-3 font-medium text-foreground">Add sources</p>
+                  <p className="mt-1 max-w-[220px] text-center text-sm">
+                    Pick PDF files to create a new library.
+                    <span
+                      role="link"
+                      className="mt-1 inline-flex items-center gap-1 underline underline-offset-2"
+                      onClick={(e) => { e.stopPropagation(); folderInputRef.current?.click(); }}
+                    >
+                      <FolderOpen className="size-3" /> or choose a folder
+                    </span>
+                  </p>
+                </>
+              )}
             </Card>
-          </Link>
+          </button>
 
-          {sessions.map((s) => (
-            <Link key={s.id} href={`/project/default/chat/${s.id}`} className="group">
+          {projects.map((p) => (
+            <Link key={p.id} href={`/project/${p.id}/chat/${makeChatId()}`} className="group" onClick={() => {}}>
               <Card className="flex h-full min-h-[220px] flex-col transition-all hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-md">
                 <CardHeader>
                   <div className="mb-1 flex items-center justify-between">
                     <div className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                      <MessageSquarePlus className="size-4" />
+                      <BookOpen className="size-4" />
                     </div>
                     <CardMenu
-                      onOpen={() => (window.location.href = `/project/default/chat/${s.id}`)}
-                      onDelete={() => deleteSession(s.id)}
+                      onOpen={() => router.push(`/project/${p.id}/chat/${makeChatId()}`)}
+                      onDelete={() => deleteProject(p.id)}
                     />
                   </div>
-                  <CardTitle className="line-clamp-2 text-base">{s.title || "New chat"}</CardTitle>
+                  <CardTitle className="line-clamp-2 text-base">{p.name}</CardTitle>
                   <CardDescription className="line-clamp-1">
-                    {deletingId === s.id ? "Deleting…" : timeAgo(s.updated_at)}
+                    {deletingId === p.id ? "Deleting…" : timeAgo(p.created_at)}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="mt-auto">
-                  <p className="font-mono text-[10px] text-muted-foreground">{s.id.slice(0, 8)}</p>
+                  <p className="font-mono text-[10px] text-muted-foreground">{p.id.slice(0, 8)} · {p.qdrant_collection}</p>
                 </CardContent>
               </Card>
             </Link>
           ))}
         </div>
+
+        {projects.length === 0 && adding === null && status === "ok" && (
+          <p className="mt-4 text-xs text-muted-foreground">No libraries yet — add a folder or files above.</p>
+        )}
 
         {status === "offline" && (
           <div className="mt-6 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">

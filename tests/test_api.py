@@ -280,7 +280,11 @@ def test_chats_are_user_scoped(client):
     r = client.post("/api/auth/register", json={"username": "bob", "password": "secret123"})
     assert r.status_code == 201
 
-    r = client.put("/api/chats/chat-bob-1", json={"project_id": "default", "messages": [
+    r = client.post("/api/projects", json={"name": "bob sources"})
+    assert r.status_code == 201
+    project_id = r.json()["id"]
+
+    r = client.put("/api/chats/chat-bob-1", json={"project_id": project_id, "messages": [
         {"role": "user", "content": "hello from bob"},
     ]})
     assert r.status_code == 200
@@ -293,7 +297,7 @@ def test_chats_are_user_scoped(client):
     client.post("/api/auth/login", json={"username": "tester", "password": "secret123"})
     assert client.get("/api/chats/chat-bob-1").status_code == 404
     assert client.delete("/api/chats/chat-bob-1").status_code == 404
-    chats = client.get("/api/projects/default/chats").json()["chats"]
+    chats = client.get(f"/api/projects/{project_id}/chats").json()["chats"]
     assert all(c["id"] != "chat-bob-1" for c in chats)
 
     # tester deleting bob's chat removes nothing; bob's chat stays bob-only
@@ -307,3 +311,55 @@ def test_key_endpoints(client):
 
     r = client.get("/api/keys/unknown-provider")
     assert r.status_code == 404
+
+
+def test_projects_upload_and_delete(client):
+    """Create project, upload PDFs (auto build), scoped index, delete."""
+    r = client.post("/api/projects", json={"name": "My papers"})
+    assert r.status_code == 201, r.text
+    project = r.json()
+    assert project["qdrant_collection"].startswith("lib_")
+    assert project["name"] == "My papers"
+
+    # list shows it; another user's projects are hidden (checked below)
+    assert client.get("/api/projects").json()["projects"][0]["id"] == project["id"]
+
+    # upload PDFs
+    from tests.conftest import make_pdf
+    make_pdf(__import__("pathlib").Path(project["pdf_dir"]) / "uploaded.pdf",
+             ["Zirconium alloys resist corrosion."])
+    with open(__import__("pathlib").Path(project["pdf_dir"]) / "uploaded.pdf", "rb") as fh:
+        r = client.post(f"/api/projects/{project['id']}/upload",
+                        files={"files": ("uploaded.pdf", fh, "application/pdf")})
+    assert r.status_code == 200, r.text
+    assert r.json()["pdf_dir_available"] is True
+
+    # wait for the auto-started build job to finish
+    import time
+    for _ in range(100):
+        jobs = client.get("/api/jobs").json()["jobs"]
+        if not any(j["status"] in ("queued", "running") for j in jobs):
+            break
+        time.sleep(0.05)
+
+    # index info is project-scoped and shows the uploaded document
+    info = client.get(f"/api/index/info?project_id={project['id']}")
+    assert info.status_code == 200
+    assert info.json()["documents"] == 1
+
+    # query scoped to the project works
+    r = client.post("/api/query", json={"question": "zirconium", "project_id": project["id"]})
+    assert r.status_code == 200, r.text
+
+    # another user cannot see or touch it
+    client.post("/api/auth/logout")
+    client.post("/api/auth/register", json={"username": "mallory", "password": "secret123"})
+    assert client.get("/api/projects").json()["projects"] == []
+    assert client.delete(f"/api/projects/{project['id']}").status_code == 404
+    assert client.get(f"/api/index/info?project_id={project['id']}").status_code == 404
+
+    # owner deletes it
+    client.post("/api/auth/logout")
+    client.post("/api/auth/login", json={"username": "tester", "password": "secret123"})
+    assert client.delete(f"/api/projects/{project['id']}").status_code == 200
+    assert client.get("/api/projects").json()["projects"] == []

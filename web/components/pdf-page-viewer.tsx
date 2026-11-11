@@ -14,14 +14,16 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 export function PdfPageViewer({
   fileName,
   pageNumber,
+  projectId,
 }: {
   fileName: string;
   pageNumber: number;
+  projectId?: string;
 }) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [width, setWidth] = useState<number>(320);
   const containerRef = useRef<HTMLDivElement>(null);
-  const fileUrl = `/api/documents/file?name=${encodeURIComponent(fileName)}`;
+  const fileUrl = `/api/documents/file?name=${encodeURIComponent(fileName)}${projectId ? `&project_id=${encodeURIComponent(projectId)}` : ""}`;
 
   useEffect(() => {
     const el = containerRef.current;

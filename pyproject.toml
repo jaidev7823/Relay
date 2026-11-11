@@ -43,6 +43,7 @@ server = [
     "qdrant-client>=1.12",
     "fastembed>=0.4",
     "pydantic-settings>=2.0",
+    "python-multipart>=0.0.9",
 ]
 
 [project.scripts]

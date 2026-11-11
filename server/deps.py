@@ -8,6 +8,7 @@ invalidation happens when settings change via PUT /config.
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 
 from relevantr import pipeline
 from relevantr.config import AppConfig
@@ -17,6 +18,7 @@ from relevantr.store import VectorStore, get_store
 
 from . import chats as chats_db
 from . import jobs as jobs_db
+from . import projects as projects_db
 from . import users as users_db
 from .ingest_jobs import JobRunner
 from .settings import get_settings
@@ -81,13 +83,68 @@ class State:
 
     # -- stores ------------------------------------------------------------
 
-    def store(self) -> VectorStore:
-        return get_store(self.config)
+    def store(self, config: AppConfig | None = None) -> VectorStore:
+        return get_store(config or self.config)
+
+    # -- projects ----------------------------------------------------------
+
+    def project_config(self, project: dict) -> AppConfig:
+        """A copy of the global config pointed at the project's sources
+        and its own Qdrant collection. Never persisted."""
+        import dataclasses
+
+        return dataclasses.replace(
+            self.config,
+            pdf_dir=project["pdf_dir"],
+            qdrant_collection=project["qdrant_collection"],
+        )
+
+    def project(self, project_id: str, user_id: str) -> dict | None:
+        row = projects_db.get(self.jobs_db_path, project_id)
+        if row is None or row["user_id"] != user_id:
+            return None
+        return row
+
+    def projects_list(self, user_id: str) -> list[dict]:
+        return projects_db.list_for_user(self.jobs_db_path, user_id)
+
+    def project_create(self, user_id: str, name: str) -> dict:
+        return projects_db.create(
+            self.jobs_db_path, self.settings.data_dir, user_id, name
+        )
+
+    def project_delete(self, project_id: str, user_id: str) -> bool:
+        import dataclasses
+
+        if self.project(project_id, user_id) is None:
+            return False
+
+        def cleanup(collection: str) -> None:
+            import shutil as _shutil
+
+            cfg = dataclasses.replace(self.config, qdrant_collection=collection)
+            try:
+                client = self.store(cfg)._get_client()  # noqa: SLF001
+                client.delete_collection(collection)
+            except Exception:
+                pass
+            _shutil.rmtree(
+                Path(self.settings.data_dir) / "libraries" / collection,
+                ignore_errors=True,
+            )
+
+        from .projects import delete as delete_project
+
+        return delete_project(
+            self.jobs_db_path, self.settings.data_dir, project_id,
+            qdrant_cleanup=cleanup,
+        )
 
     def init_jobs_db(self) -> None:
         jobs_db.init_db(self.jobs_db_path)
         chats_db.init_db(self.jobs_db_path)
         users_db.init_db(self.jobs_db_path)
+        projects_db.init_db(self.jobs_db_path)
         users_db.purge_expired_sessions(self.jobs_db_path)
         # Pre-auth chats belong to the first registered user, not to everyone.
         first = users_db.first_user(self.jobs_db_path)

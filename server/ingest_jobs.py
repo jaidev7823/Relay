@@ -67,11 +67,13 @@ class JobRunner:
     # -- running -----------------------------------------------------------
 
     def start(self, job_type: str, pdf_dir: str | None = None,
-              force_rebuild: bool = False) -> dict:
+              force_rebuild: bool = False, config=None) -> dict:
         """Create a job row and start the work in a background thread.
 
         job_type: "build" (create/overwrite), "update" (incremental),
         or "rebuild" (drop + full re-embed; same as build for now).
+        ``config`` may be a per-project config copy; without it the
+        global config is used.
         """
         self._claim()
         job = jobs_db.create_job(self.db_path, job_type)
@@ -81,16 +83,19 @@ class JobRunner:
 
         thread = threading.Thread(
             target=self._run,
-            args=(job, pdf_dir, force_rebuild),
+            args=(job, pdf_dir, force_rebuild, config),
             name=f"relevantr-job-{job['id'][:8]}",
             daemon=True,
         )
         thread.start()
         return job
 
-    def _run(self, job: dict, pdf_dir: str | None, force_rebuild: bool) -> None:
+    def _run(self, job: dict, pdf_dir: str | None, force_rebuild: bool,
+             config=None) -> None:
         job_id = job["id"]
-        config = self.config
+        import copy
+
+        config = copy.copy(config if config is not None else self.config)
         if pdf_dir:
             config.pdf_dir = pdf_dir
 

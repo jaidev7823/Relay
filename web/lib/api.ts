@@ -40,6 +40,14 @@ export type Passage = {
   score: number;
 };
 
+export type Project = {
+  id: string;
+  name: string;
+  pdf_dir: string;
+  qdrant_collection: string;
+  created_at: number;
+};
+
 export type QueryOut = {
   question: string;
   answer: string | null;
@@ -48,9 +56,10 @@ export type QueryOut = {
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const isForm = init?.body instanceof FormData;
   const res = await fetch(path, {
     ...init,
-    headers: {
+    headers: isForm ? { ...(init?.headers || {}) } : {
       "Content-Type": "application/json",
       ...(init?.headers || {}),
     },
@@ -74,19 +83,36 @@ export const api = {
   health: () => request<{ status: string; qdrant: string; version: string }>("/api/health"),
   config: () => request<any>("/api/config"),
   putConfig: (body: any) => request<any>("/api/config", { method: "PUT", body: JSON.stringify(body) }),
-  indexInfo: () => request<IndexInfo>("/api/index/info"),
-  documents: () => request<{ pdf_dir: string; pdf_dir_available: boolean; documents: Doc[] }>("/api/index/documents"),
-  build: (pdf_dir?: string) => request<Job>("/api/index/build", { method: "POST", body: JSON.stringify(pdf_dir ? { pdf_dir } : {}) }),
-  update: (pdf_dir?: string) => request<Job>("/api/index/update", { method: "POST", body: JSON.stringify(pdf_dir ? { pdf_dir } : {}) }),
-  rebuild: (pdf_dir?: string) => request<Job>("/api/index/rebuild", { method: "POST", body: JSON.stringify(pdf_dir ? { pdf_dir } : {}) }),
+  indexInfo: (projectId?: string) =>
+    request<IndexInfo>(`/api/index/info${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ""}`),
+  documents: (projectId?: string) =>
+    request<{ pdf_dir: string; pdf_dir_available: boolean; documents: Doc[] }>(`/api/index/documents${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ""}`),
+  build: (projectId?: string) =>
+    request<Job>("/api/index/build", { method: "POST", body: JSON.stringify(projectId ? { project_id: projectId } : {}) }),
+  update: (projectId?: string) =>
+    request<Job>("/api/index/update", { method: "POST", body: JSON.stringify(projectId ? { project_id: projectId } : {}) }),
+  rebuild: (projectId?: string) =>
+    request<Job>("/api/index/rebuild", { method: "POST", body: JSON.stringify(projectId ? { project_id: projectId } : {}) }),
   jobs: () => request<{ jobs: Job[] }>("/api/jobs"),
   job: (id: string) => request<Job>(`/api/jobs/${id}`),
-  query: (body: { question: string; use_llm?: boolean; retrieve_k?: number; final_n?: number }) =>
+  query: (body: { question: string; use_llm?: boolean; retrieve_k?: number; final_n?: number; project_id?: string }) =>
     request<QueryOut>("/api/query", { method: "POST", body: JSON.stringify(body) }),
-  exportMd: async (question: string) => {
-    const res = await fetch(`/api/export.md?question=${encodeURIComponent(question)}`);
+  exportMd: async (question: string, projectId?: string) => {
+    const params = new URLSearchParams({ question });
+    if (projectId) params.set("project_id", projectId);
+    const res = await fetch(`/api/export.md?${params}`);
     if (!res.ok) throw new Error("Export failed");
     return res.text();
+  },
+  projects: () => request<{ projects: Project[] }>("/api/projects"),
+  createProject: (name: string) =>
+    request<Project>("/api/projects", { method: "POST", body: JSON.stringify({ name }) }),
+  deleteProject: (projectId: string) =>
+    request<{ ok: boolean }>(`/api/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" }),
+  uploadFiles: (projectId: string, files: File[]) => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    return request<{ documents: Doc[] }>(`/api/projects/${encodeURIComponent(projectId)}/upload`, { method: "POST", body: fd });
   },
   llmTest: () => request<{ ok: boolean; message: string }>("/api/llm/test", { method: "POST" }),
   llmModels: () => request<{ models: string[] }>("/api/llm/models"),

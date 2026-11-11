@@ -186,6 +186,8 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
   const [viewPage, setViewPage] = useState<number>(1);
   const [asking, setAsking] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
 
   // chat persistence
   const chatLoadedRef = useRef(false);
@@ -220,7 +222,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
     try {
       const [c, d, j] = await Promise.all([
         api.config().catch(() => null),
-        api.documents().catch(() => ({ pdf_dir: "", pdf_dir_available: false, documents: [] })),
+        api.documents(projectId).catch(() => ({ pdf_dir: "", pdf_dir_available: false, documents: [] })),
         api.jobs().catch(() => ({ jobs: [] })),
       ]);
       if (c) {
@@ -230,7 +232,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
       setDocs(d.documents || []);
       setJobs(j.jobs || []);
       try {
-        setInfo(await api.indexInfo());
+        setInfo(await api.indexInfo(projectId));
         setError(null);
       } catch {
         setInfo(null);
@@ -238,7 +240,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
     } catch (e: any) {
       setError(e?.message || "Failed to reach backend");
     }
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     refresh();
@@ -304,9 +306,9 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
   const runJob = async (kind: "build" | "update" | "rebuild") => {
     setBusy(kind);
     try {
-      if (kind === "build") await api.build();
-      else if (kind === "update") await api.update();
-      else await api.rebuild();
+      if (kind === "build") await api.build(projectId);
+      else if (kind === "update") await api.update(projectId);
+      else await api.rebuild(projectId);
       await refresh();
     } catch (e: any) {
       setError(e?.message || "Failed to start job");
@@ -325,7 +327,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
     setMessages((m) => [...m, userMsg, asstMsg]);
     setAsking(true);
     try {
-      const res = await api.query({ question: q, use_llm: llmEnabled });
+      const res = await api.query({ question: q, use_llm: llmEnabled, project_id: projectId });
       const sources: ChatSource[] = (res.passages || []).map((p, i) => ({
         id: `${asstId}-${i}`,
         file: p.source,
@@ -347,6 +349,22 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
   };
 
   const newChat = () => router.push(`/project/${projectId}/chat/${crypto.randomUUID()}`);
+
+  const addFiles = async (fileList: FileList | null) => {
+    const files = Array.from(fileList || []).filter((f) => f.name.toLowerCase().endsWith(".pdf"));
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      await api.uploadFiles(projectId, files);
+      await refresh();
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message || "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   const readyCount = docs.filter((s) => s.state === "ready").length;
   const embeddingDoc = docs.find((s) => s.state === "embedding");
@@ -420,6 +438,18 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
                     <Plus className="size-3.5" /> Build
                   </Button>
                 </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,application/pdf"
+                  className="hidden"
+                  onChange={(e) => addFiles(e.target.files)}
+                />
+                <Button variant="outline" size="sm" className="w-full" onClick={() => fileInputRef.current?.click()} disabled={uploading || !!activeJob}>
+                  {uploading ? <LoaderCircle className="size-3.5 animate-spin" /> : <FileText className="size-3.5" />}
+                  {uploading ? "Uploading…" : "Add files"}
+                </Button>
                 <Button variant="ghost" size="sm" className="w-full justify-start text-xs text-muted-foreground" onClick={() => runJob("rebuild")} disabled={!!activeJob || !!busy}>
                   Rebuild index
                 </Button>
@@ -450,7 +480,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
                   ))}
                   {docs.length === 0 && (
                     <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                      No PDFs found. Set <code className="rounded bg-muted px-1">pdf_dir</code> in config and click Build.
+                      No PDFs yet. Click "Add files" to upload PDFs — they embed automatically.
                       {config?.pdf_dir ? <div className="mt-1 truncate font-mono text-[10px]">{config.pdf_dir}</div> : null}
                     </div>
                   )}
@@ -583,7 +613,7 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
                       <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/90">{selected.snippet}</p>
                     </div>
                     <div className="rounded-lg border bg-card p-2">
-                      <PdfPageViewer fileName={selected.file} pageNumber={viewPage} />
+                      <PdfPageViewer fileName={selected.file} pageNumber={viewPage} projectId={projectId} />
                     </div>
                   </div>
                   <div className="flex items-center justify-between border-t bg-background/50 p-2">

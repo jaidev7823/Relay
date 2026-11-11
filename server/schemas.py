@@ -96,6 +96,23 @@ class DocumentListOut(BaseModel):
 
 class StartJobIn(BaseModel):
     pdf_dir: str | None = None
+    project_id: str | None = None
+
+
+class ProjectCreateIn(BaseModel):
+    name: str = ""
+
+
+class ProjectOut(BaseModel):
+    id: str
+    name: str
+    pdf_dir: str
+    qdrant_collection: str
+    created_at: float
+
+
+class ProjectListOut(BaseModel):
+    projects: list[ProjectOut]
 
 
 class PassageOut(BaseModel):
@@ -110,6 +127,7 @@ class QueryIn(BaseModel):
     use_llm: bool | None = None  # None = follow config
     retrieve_k: int | None = Field(default=None, ge=1, le=200)
     final_n: int | None = Field(default=None, ge=1, le=50)
+    project_id: str | None = None
 
 
 class QueryOut(BaseModel):

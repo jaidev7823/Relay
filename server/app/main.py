@@ -44,6 +44,9 @@ from ..schemas import (
     KeyStatusOut,
     LlmModelsOut,
     LlmTestOut,
+    ProjectCreateIn,
+    ProjectListOut,
+    ProjectOut,
     QueryIn,
     QueryOut,
     StartJobIn,
@@ -182,56 +185,87 @@ def put_config(body: ConfigIn, st: State = Depends(state)) -> ConfigOut:
 
 @app.post("/api/index/build", response_model=JobOut, tags=["index"])
 def build_index(body: StartJobIn | None = None,
+                user: dict = Depends(require_user),
                 st: State = Depends(state)) -> JobOut:
-    return _start_job(st, "build", body.pdf_dir if body else None)
+    project = _require_project(st, user, body.project_id if body else None)
+    return _start_job(st, "build", body.pdf_dir if body else None, project)
 
 
 @app.post("/api/index/update", response_model=JobOut, tags=["index"])
 def update_index(body: StartJobIn | None = None,
+                 user: dict = Depends(require_user),
                  st: State = Depends(state)) -> JobOut:
-    return _start_job(st, "update", body.pdf_dir if body else None)
+    project = _require_project(st, user, body.project_id if body else None)
+    return _start_job(st, "update", body.pdf_dir if body else None, project)
 
 
 @app.post("/api/index/rebuild", response_model=JobOut, tags=["index"])
 def rebuild_index(body: StartJobIn | None = None,
+                  user: dict = Depends(require_user),
                   st: State = Depends(state)) -> JobOut:
-    return _start_job(st, "rebuild", body.pdf_dir if body else None)
+    project = _require_project(st, user, body.project_id if body else None)
+    return _start_job(st, "rebuild", body.pdf_dir if body else None, project)
 
 
-def _start_job(st: State, job_type: str, pdf_dir: str | None) -> JobOut:
-    if pdf_dir:
-        import pathlib
+def _require_project(st: State, user: dict, project_id: str | None) -> dict | None:
+    if not project_id:
+        return None
+    project = st.project(project_id, user["id"])
+    if project is None:
+        raise HTTPException(404, f"project '{project_id}' not found")
+    return project
 
+
+def _start_job(st: State, job_type: str, pdf_dir: str | None,
+               project: dict | None = None) -> JobOut:
+    import copy
+    import pathlib
+
+    config = None
+    if project:
+        config = st.project_config(project)
+        pdf_dir = project["pdf_dir"]
+    elif pdf_dir:
         if not pathlib.Path(pdf_dir).is_dir():
             raise HTTPException(400, f"pdf_dir '{pdf_dir}' does not exist")
     try:
-        job = st.job_runner.start(job_type, pdf_dir=pdf_dir)
+        job = st.job_runner.start(job_type, pdf_dir=pdf_dir, config=config)
     except JobConflictError as exc:
         raise HTTPException(409, str(exc))
     return JobOut(**job)
 
 
 @app.get("/api/index/info", response_model=IndexInfoOut, tags=["index"])
-def index_info(st: State = Depends(state)) -> IndexInfoOut:
+def index_info(project_id: str | None = None, user: dict = Depends(require_user),
+               st: State = Depends(state)) -> IndexInfoOut:
+    config = st.config
+    if project_id:
+        project = _require_project(st, user, project_id)
+        config = st.project_config(project)
     try:
-        info = pipeline.index_info(st.config)
+        info = pipeline.index_info(config)
     except StoreError as exc:
         raise HTTPException(404, str(exc))
     return IndexInfoOut(**info)
 
 
 @app.get("/api/index/documents", response_model=DocumentListOut, tags=["index"])
-def index_documents(st: State = Depends(state)) -> DocumentListOut:
+def index_documents(project_id: str | None = None, user: dict = Depends(require_user),
+                    st: State = Depends(state)) -> DocumentListOut:
     import pathlib
     from relevantr.ingest import list_pdfs
 
     config = st.config
+    if project_id:
+        project = _require_project(st, user, project_id)
+        config = st.project_config(project)
+
     pdf_dir = pathlib.Path(config.pdf_dir) if config.pdf_dir else None
     available = bool(pdf_dir and pdf_dir.is_dir())
 
     manifest_files: dict = {}
     try:
-        store = st.store()
+        store = st.store(config)
         manifest = store.open_existing()
         manifest_files = manifest.files or {}
     except StoreError:
@@ -298,12 +332,21 @@ def get_job(job_id: str, st: State = Depends(state)) -> JobOut:
 
 
 @app.post("/api/query", response_model=QueryOut, tags=["query"])
-async def query(body: QueryIn, st: State = Depends(state)) -> QueryOut:
+async def query(body: QueryIn, user: dict = Depends(require_user),
+                st: State = Depends(state)) -> QueryOut:
     """Hybrid retrieval (+ optional LLM answer). Runs in a worker thread
     because embedding and reranking are CPU-bound."""
     import anyio
+    import copy
 
-    config = st.config
+    if body.project_id:
+        project = _require_project(st, user, body.project_id)
+        config = st.project_config(project)
+        persist = False
+    else:
+        config = st.config
+        persist = True
+
     if body.use_llm is not None:
         config.llm_enabled = body.use_llm  # request-level override only
     if body.retrieve_k is not None:
@@ -312,7 +355,7 @@ async def query(body: QueryIn, st: State = Depends(state)) -> QueryOut:
         config.final_n = body.final_n
 
     def work():
-        return _run_query(st, body.question)
+        return _run_query(config, body.question)
 
     try:
         passages, answer = await anyio.to_thread.run_sync(work)
@@ -321,7 +364,8 @@ async def query(body: QueryIn, st: State = Depends(state)) -> QueryOut:
     except LLMError as exc:
         raise HTTPException(502, f"LLM request failed: {exc}")
     finally:
-        st.config.save()  # persist any overrides
+        if persist:
+            config.save()  # persist any overrides (global config only)
 
     mode = "llm answer" if answer else "retrieval only"
     return QueryOut(
@@ -335,17 +379,93 @@ async def query(body: QueryIn, st: State = Depends(state)) -> QueryOut:
     )
 
 
-def _run_query(st: State, question: str):
+def _run_query(config, question: str):
     from relevantr.rerank import Passage
 
+    from ..deps import get_state
+
+    st = get_state()
     reranker = st.reranker()
-    passages = pipeline.query_index(st.config, st.embedder(), question,
+    passages = pipeline.query_index(config, st.embedder(), question,
                                     reranker=reranker)
     answer = None
-    if st.config.llm_enabled and passages:
-        client = LLMClient.from_config(st.config)
+    if config.llm_enabled and passages:
+        client = LLMClient.from_config(config)
         answer = client.answer(question, passages)
     return passages, answer
+
+
+# ------------------------------------------------------------------- projects
+
+
+@app.post("/api/projects", response_model=ProjectOut, tags=["projects"],
+          status_code=201)
+def create_project(body: ProjectCreateIn, user: dict = Depends(require_user),
+                   st: State = Depends(state)) -> ProjectOut:
+    return ProjectOut(**st.project_create(user["id"], body.name))
+
+
+@app.get("/api/projects", response_model=ProjectListOut, tags=["projects"])
+def list_projects(user: dict = Depends(require_user),
+                  st: State = Depends(state)) -> ProjectListOut:
+    return ProjectListOut(projects=[ProjectOut(**p) for p in st.projects_list(user["id"])])
+
+
+@app.delete("/api/projects/{project_id}", tags=["projects"])
+def delete_project(project_id: str, user: dict = Depends(require_user),
+                   st: State = Depends(state)) -> dict:
+    if not st.project_delete(project_id, user["id"]):
+        raise HTTPException(404, f"project '{project_id}' not found")
+    return {"ok": True}
+
+
+@app.post("/api/projects/{project_id}/upload", response_model=DocumentListOut,
+          tags=["projects"])
+async def upload_files(project_id: str, request: Request,
+                       user: dict = Depends(require_user),
+                       st: State = Depends(state)) -> DocumentListOut:
+    """Save uploaded PDFs into the project's source folder and kick off
+    an index build for its own collection."""
+    import pathlib
+
+    project = _require_project(st, user, project_id)
+    pdf_dir = pathlib.Path(project["pdf_dir"])
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+
+    from starlette.requests import ClientDisconnect
+
+    try:
+        form = await request.form()
+    except ClientDisconnect:
+        # Browser closed the connection mid-upload (navigation, refresh,
+        # cancelled request). Nothing was saved; tell the client instead of 500.
+        raise HTTPException(400, "Upload aborted before the files arrived")
+    saved: list[str] = []
+    for _field, content in form.multi_items():
+        if not hasattr(content, "read"):
+            continue
+        # Only keep the basename; browsers may send relative paths.
+        name = pathlib.PurePath(content.filename or "").name
+        if not name.lower().endswith(".pdf"):
+            continue
+        if "/" in name or ".." in name or not name:
+            continue
+        try:
+            (pdf_dir / name).write_bytes(await content.read())
+        except ClientDisconnect:
+            raise HTTPException(400, "Upload aborted mid-transfer")
+        if name not in saved:
+            saved.append(name)
+
+    if saved:
+        try:
+            st.job_runner.start("build", pdf_dir=str(pdf_dir),
+                                config=st.project_config(project))
+        except JobConflictError:
+            pass  # a build is already running; it picks the files up next time
+
+    # Reuse the documents listing for the response shape.
+    return index_documents(project_id=project_id, user=user, st=st)
 
 
 # --------------------------------------------------------------------- chats
@@ -372,6 +492,8 @@ def save_chat(chat_id: str, body: ChatSaveIn, user: dict = Depends(require_user)
     existing = st.get_chat(chat_id)
     if existing and existing.get("user_id") != user["id"]:
         raise HTTPException(404, f"chat '{chat_id}' not found")
+    if body.project_id and st.project(body.project_id, user["id"]) is None:
+        raise HTTPException(404, f"project '{body.project_id}' not found")
     messages = [m.model_dump() for m in body.messages]
     chat = st.save_chat(chat_id, body.project_id, body.title, messages, user_id=user["id"])
     return ChatOut(**chat)
@@ -392,14 +514,19 @@ def delete_chat(chat_id: str, user: dict = Depends(require_user),
 
 
 @app.get("/api/documents/file", tags=["index"])
-def document_file(name: str, st: State = Depends(state)):
+def document_file(name: str, project_id: str | None = None,
+                  user: dict = Depends(require_user), st: State = Depends(state)):
     """Serve a PDF from the configured pdf_dir (for the in-app viewer)."""
     import pathlib
+    config = st.config
+    if project_id:
+        project = _require_project(st, user, project_id)
+        config = st.project_config(project)
     from fastapi.responses import FileResponse
 
     if not name or "/" in name or "\\" in name or ".." in name or name != pathlib.Path(name).name:
         raise HTTPException(400, "invalid document name")
-    pdf_dir = pathlib.Path(st.config.pdf_dir) if st.config.pdf_dir else None
+    pdf_dir = pathlib.Path(config.pdf_dir) if config.pdf_dir else None
     if not pdf_dir or not pdf_dir.is_dir():
         raise HTTPException(404, "pdf_dir not configured or unavailable")
     path = (pdf_dir / name).resolve()
@@ -421,11 +548,16 @@ def document_file(name: str, st: State = Depends(state)):
 
 
 @app.get("/api/export", response_model=ExportOut, tags=["query"])
-def export(question: str = "", st: State = Depends(state)) -> ExportOut:
+def export(question: str = "", project_id: str | None = None,
+           user: dict = Depends(require_user), st: State = Depends(state)) -> ExportOut:
     """Re-run the last question (or the given one) and export Markdown."""
     if not question:
         raise HTTPException(400, "question query parameter is required")
-    passages, _ = _run_query(st, question)
+    config = st.config
+    if project_id:
+        project = _require_project(st, user, project_id)
+        config = st.project_config(project)
+    passages, _ = _run_query(config, question)
     lines = [
         f"# Relevantr export",
         "",
