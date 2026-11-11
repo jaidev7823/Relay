@@ -17,6 +17,7 @@ from relevantr.store import VectorStore, get_store
 
 from . import chats as chats_db
 from . import jobs as jobs_db
+from . import users as users_db
 from .ingest_jobs import JobRunner
 from .settings import get_settings
 
@@ -86,6 +87,8 @@ class State:
     def init_jobs_db(self) -> None:
         jobs_db.init_db(self.jobs_db_path)
         chats_db.init_db(self.jobs_db_path)
+        users_db.init_db(self.jobs_db_path)
+        users_db.purge_expired_sessions(self.jobs_db_path)
 
     # -- jobs --------------------------------------------------------------
 
@@ -97,14 +100,16 @@ class State:
 
     # -- chats -------------------------------------------------------------
 
-    def list_chats(self, project_id: str) -> list[dict]:
-        return chats_db.list_chats(self.jobs_db_path, project_id)
+    def list_chats(self, project_id: str, user_id: str | None = None) -> list[dict]:
+        return chats_db.list_chats(self.jobs_db_path, project_id, user_id=user_id)
 
     def get_chat(self, chat_id: str) -> dict | None:
         return chats_db.get_chat(self.jobs_db_path, chat_id)
 
-    def save_chat(self, chat_id: str, project_id: str, title: str | None, messages: list[dict]) -> dict | None:
-        return chats_db.save_messages(self.jobs_db_path, chat_id, project_id, title, messages)
+    def save_chat(self, chat_id: str, project_id: str, title: str | None, messages: list[dict],
+                  user_id: str | None = None) -> dict | None:
+        return chats_db.save_messages(self.jobs_db_path, chat_id, project_id, title, messages,
+                                      user_id=user_id)
 
     def delete_chat(self, chat_id: str) -> bool:
         return chats_db.delete_chat(self.jobs_db_path, chat_id)

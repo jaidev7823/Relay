@@ -86,7 +86,60 @@ def client(tmp_path, monkeypatch):
 
     with TestClient(app) as c:
         state.init_jobs_db()
+        # Register + log in a user so the session cookie is set for all tests.
+        r = c.post("/api/auth/register", json={"username": "tester", "password": "secret123"})
+        assert r.status_code == 201, r.text
         yield c
+
+    deps._state = None
+
+
+def test_api_requires_auth(tmp_path, monkeypatch):
+    """Without a session cookie, /api/* must 401 (health + auth excluded)."""
+    from server.settings import ServerSettings
+
+    settings = ServerSettings(
+        data_dir=tmp_path / "data",
+        qdrant_url="http://localhost:6333",
+        qdrant_collection="lib_apitest2",
+        embedding_backend="local",
+        cors_origins="",
+        _env_file=None,
+    )
+    import server.deps as deps
+
+    monkeypatch.setattr(deps, "get_settings", lambda: settings)
+    deps._state = None
+    from server.app.main import app
+
+    with TestClient(app) as c:
+        assert c.get("/api/config").status_code == 401
+        assert c.get("/api/health").status_code == 200
+        assert c.post("/api/query", json={"question": "x"}).status_code == 401
+
+        # register + login flow sets a cookie that grants access
+        r = c.post("/api/auth/register", json={"username": "alice", "password": "secret123"})
+        assert r.status_code == 201
+        assert r.json()["user"]["username"] == "alice"
+        assert c.get("/api/config").status_code == 200
+
+        # duplicate username rejected
+        r = c.post("/api/auth/register", json={"username": "alice", "password": "secret456"})
+        assert r.status_code == 400
+
+        # bad login rejected, good login works
+        r = c.post("/api/auth/login", json={"username": "alice", "password": "wrong-pass"})
+        assert r.status_code == 401
+        r = c.post("/api/auth/login", json={"username": "alice", "password": "secret123"})
+        assert r.status_code == 200
+
+        # me + logout
+        r = c.get("/api/auth/me")
+        assert r.status_code == 200
+        assert r.json()["user"]["username"] == "alice"
+        r = c.post("/api/auth/logout")
+        assert r.status_code == 200
+        assert c.get("/api/config").status_code == 401
 
     deps._state = None
 

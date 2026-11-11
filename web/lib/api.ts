@@ -55,6 +55,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers || {}),
     },
     cache: "no-store",
+    credentials: "same-origin",
   });
   if (!res.ok) {
     let detail = `${res.status} ${res.statusText}`;
@@ -62,7 +63,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       const j = await res.json();
       detail = j.detail || j.message || JSON.stringify(j);
     } catch {}
-    throw new Error(detail);
+    const err = new Error(detail) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }
@@ -95,4 +98,10 @@ export const api = {
   saveChat: (chatId: string, body: { project_id: string; title?: string; messages: any[] }) =>
     request<any>(`/api/chats/${encodeURIComponent(chatId)}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteChat: (chatId: string) => request<{ ok: boolean }>(`/api/chats/${encodeURIComponent(chatId)}`, { method: "DELETE" }),
+  register: (username: string, password: string) =>
+    request<{ user: { id: string; username: string } }>("/api/auth/register", { method: "POST", body: JSON.stringify({ username, password }) }),
+  login: (username: string, password: string) =>
+    request<{ user: { id: string; username: string } }>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+  logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+  me: () => request<{ user: { id: string; username: string } }>("/api/auth/me"),
 };

@@ -8,6 +8,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { api, type IndexInfo } from "@/lib/api";
+import { useRequireAuth } from "@/lib/use-auth";
 import { cn } from "@/lib/utils";
 
 function makeChatHref() {
@@ -18,6 +19,7 @@ function makeChatHref() {
 }
 
 export default function Home() {
+  const { ready: authReady } = useRequireAuth();
   const [info, setInfo] = useState<IndexInfo | null>(null);
   const [config, setConfig] = useState<any>(null);
   const [status, setStatus] = useState<"loading" | "ok" | "no-index" | "offline">("loading");

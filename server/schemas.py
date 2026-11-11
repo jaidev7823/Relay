@@ -182,3 +182,23 @@ class ChatSaveIn(BaseModel):
 
 class ChatListOut(BaseModel):
     chats: list[ChatSummaryOut]
+
+
+class UserOut(BaseModel):
+    id: str
+    username: str
+    created_at: float
+
+
+class RegisterIn(BaseModel):
+    username: str
+    password: str
+
+
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+
+class AuthOut(BaseModel):
+    user: UserOut

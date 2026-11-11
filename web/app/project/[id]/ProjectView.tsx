@@ -29,6 +29,7 @@ import {
   Send,
   Settings2,
   Sparkles,
+  LogOut,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -40,6 +41,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { api, type Doc, type IndexInfo, type Job } from "@/lib/api";
+import { useRequireAuth } from "@/lib/use-auth";
 import { loadChat, saveChat, type ChatMessage, type ChatSource } from "@/lib/chat-store";
 import { cn } from "@/lib/utils";
 
@@ -160,6 +162,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 
 export default function ProjectView({ projectId, chatId }: { projectId: string; chatId: string }) {
   const router = useRouter();
+  const { user, ready: authReady } = useRequireAuth();
   const [leftOpen, setLeftOpen] = useState(true);
   const [leftWidth, setLeftWidth] = useState(288);
   const [rightWidth, setRightWidth] = useState(380);
@@ -378,6 +381,11 @@ export default function ProjectView({ projectId, chatId }: { projectId: string; 
             <Switch checked={llmEnabled} onCheckedChange={setLlmEnabled} />
           </label>
           <ThemeToggle />
+          {user && (
+            <Button variant="ghost" size="sm" title="Log out" onClick={async () => { await api.logout().catch(() => {}); router.replace("/login"); }}>
+              <LogOut className="size-3.5" /> {user.username}
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
             <Settings2 className="size-3.5" /> Settings
           </Button>

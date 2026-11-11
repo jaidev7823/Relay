@@ -14,8 +14,9 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from relevantr import __version__ as core_version, pipeline
 from relevantr.config import LLM_PRESETS, resolve_api_key, store_api_key
@@ -48,6 +49,7 @@ from ..schemas import (
     StartJobIn,
 )
 from . import keys, llm
+from .auth import current_user, require_user, router as auth_router
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +82,34 @@ if _settings.cors_origin_list:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_settings.cors_origin_list,
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+
+# ------------------------------------------------------------------ auth guard
+#
+# Everything under /api requires a logged-in session, except the auth
+# endpoints themselves and the health check. The authenticated user is
+# attached to request.state.user for downstream dependencies.
+
+_OPEN_PATHS = ("/api/health",)
+
+
+@app.middleware("http")
+async def auth_guard(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/") and not path.startswith("/api/auth/"):
+        if path not in _OPEN_PATHS:
+            user = current_user(request)
+            if user is None:
+                return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+            request.state.user = user
+    return await call_next(request)
+
+
+app.include_router(auth_router)
 
 
 # --------------------------------------------------------------------- health
@@ -325,27 +352,37 @@ def _run_query(st: State, question: str):
 
 
 @app.get("/api/projects/{project_id}/chats", response_model=ChatListOut, tags=["chats"])
-def list_project_chats(project_id: str, st: State = Depends(state)) -> ChatListOut:
-    return ChatListOut(chats=[ChatSummaryOut(**c) for c in st.list_chats(project_id)])
+def list_project_chats(project_id: str, user: dict = Depends(require_user),
+                       st: State = Depends(state)) -> ChatListOut:
+    return ChatListOut(chats=[ChatSummaryOut(**c) for c in st.list_chats(project_id, user_id=user["id"])])
 
 
 @app.get("/api/chats/{chat_id}", response_model=ChatOut, tags=["chats"])
-def get_chat(chat_id: str, st: State = Depends(state)) -> ChatOut:
+def get_chat(chat_id: str, user: dict = Depends(require_user),
+             st: State = Depends(state)) -> ChatOut:
     chat = st.get_chat(chat_id)
-    if chat is None:
+    if chat is None or (chat.get("user_id") and chat["user_id"] != user["id"]):
         raise HTTPException(404, f"chat '{chat_id}' not found")
     return ChatOut(**chat)
 
 
 @app.put("/api/chats/{chat_id}", response_model=ChatOut, tags=["chats"])
-def save_chat(chat_id: str, body: ChatSaveIn, st: State = Depends(state)) -> ChatOut:
+def save_chat(chat_id: str, body: ChatSaveIn, user: dict = Depends(require_user),
+              st: State = Depends(state)) -> ChatOut:
+    existing = st.get_chat(chat_id)
+    if existing and existing.get("user_id") and existing["user_id"] != user["id"]:
+        raise HTTPException(404, f"chat '{chat_id}' not found")
     messages = [m.model_dump() for m in body.messages]
-    chat = st.save_chat(chat_id, body.project_id, body.title, messages)
+    chat = st.save_chat(chat_id, body.project_id, body.title, messages, user_id=user["id"])
     return ChatOut(**chat)
 
 
 @app.delete("/api/chats/{chat_id}", tags=["chats"])
-def delete_chat(chat_id: str, st: State = Depends(state)) -> dict:
+def delete_chat(chat_id: str, user: dict = Depends(require_user),
+                st: State = Depends(state)) -> dict:
+    existing = st.get_chat(chat_id)
+    if existing is None or (existing.get("user_id") and existing["user_id"] != user["id"]):
+        raise HTTPException(404, f"chat '{chat_id}' not found")
     if not st.delete_chat(chat_id):
         raise HTTPException(404, f"chat '{chat_id}' not found")
     return {"ok": True}

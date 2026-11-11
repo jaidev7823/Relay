@@ -17,11 +17,13 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS chats (
     id          TEXT PRIMARY KEY,
     project_id  TEXT NOT NULL,
+    user_id     TEXT,
     title       TEXT NOT NULL DEFAULT 'New chat',
     created_at  REAL NOT NULL,
     updated_at  REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chats_project ON chats (project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chats_user ON chats (user_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS messages (
     id          TEXT PRIMARY KEY,
@@ -53,6 +55,11 @@ def init_db(db_path: Path) -> None:
         conn = _connect(db_path)
         try:
             conn.executescript(SCHEMA)
+            # Migration: add user_id to pre-auth chats tables.
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(chats)").fetchall()}
+            if "user_id" not in cols:
+                conn.execute("ALTER TABLE chats ADD COLUMN user_id TEXT")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_user ON chats (user_id, updated_at DESC)")
             conn.commit()
         finally:
             conn.close()
@@ -81,13 +88,20 @@ def upsert_chat(db_path: Path, chat_id: str, project_id: str, title: str | None 
     return dict(row)
 
 
-def list_chats(db_path: Path, project_id: str, limit: int = 50) -> list[dict]:
+def list_chats(db_path: Path, project_id: str, limit: int = 50, user_id: str | None = None) -> list[dict]:
     conn = _connect(db_path)
     try:
-        rows = conn.execute(
-            "SELECT * FROM chats WHERE project_id = ? ORDER BY updated_at DESC LIMIT ?",
-            (project_id, limit),
-        ).fetchall()
+        if user_id is None:
+            rows = conn.execute(
+                "SELECT * FROM chats WHERE project_id = ? ORDER BY updated_at DESC LIMIT ?",
+                (project_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM chats WHERE project_id = ? AND (user_id = ? OR user_id IS NULL) "
+                "ORDER BY updated_at DESC LIMIT ?",
+                (project_id, user_id, limit),
+            ).fetchall()
     finally:
         conn.close()
     return [dict(r) for r in rows]
@@ -110,7 +124,8 @@ def get_chat(db_path: Path, chat_id: str) -> dict | None:
     return chat
 
 
-def save_messages(db_path: Path, chat_id: str, project_id: str, title: str | None, messages: list[dict]) -> dict | None:
+def save_messages(db_path: Path, chat_id: str, project_id: str, title: str | None, messages: list[dict],
+                  user_id: str | None = None) -> dict | None:
     """Replace a chat's messages with the provided list (idempotent save from client)."""
     now = time.time()
     with _write_lock:
@@ -119,13 +134,14 @@ def save_messages(db_path: Path, chat_id: str, project_id: str, title: str | Non
             row = conn.execute("SELECT id FROM chats WHERE id = ?", (chat_id,)).fetchone()
             if not row:
                 conn.execute(
-                    "INSERT INTO chats (id, project_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                    (chat_id, project_id, title or "New chat", now, now),
+                    "INSERT INTO chats (id, project_id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (chat_id, project_id, user_id, title or "New chat", now, now),
                 )
             else:
                 conn.execute(
-                    "UPDATE chats SET title = COALESCE(?, title), updated_at = ?, project_id = ? WHERE id = ?",
-                    (title, now, project_id, chat_id),
+                    "UPDATE chats SET title = COALESCE(?, title), updated_at = ?, project_id = ?, "
+                    "user_id = COALESCE(user_id, ?) WHERE id = ?",
+                    (title, now, project_id, user_id, chat_id),
                 )
             conn.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
             for i, m in enumerate(messages):
