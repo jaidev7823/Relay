@@ -71,7 +71,7 @@ class QdrantStore(VectorStore):
         api_key: str | None = None,
         client=None,
         sparse_model: str = BM25_MODEL,
-        sparse_df_threshold: float = 0.5,
+        sparse_df_threshold: float = 0.3,
     ):
         self.collection = collection
         self.data_dir = Path(data_dir) / "libraries" / collection
